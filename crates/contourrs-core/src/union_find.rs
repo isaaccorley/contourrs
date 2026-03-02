@@ -1,0 +1,78 @@
+/// Disjoint set (union-find) with path compression and union by rank.
+pub struct UnionFind {
+    parent: Vec<u32>,
+    rank: Vec<u8>,
+}
+
+impl UnionFind {
+    pub fn new(n: usize) -> Self {
+        Self {
+            parent: (0..n as u32).collect(),
+            rank: vec![0; n],
+        }
+    }
+
+    /// Find root with path compression.
+    pub fn find(&mut self, mut x: u32) -> u32 {
+        while self.parent[x as usize] != x {
+            self.parent[x as usize] = self.parent[self.parent[x as usize] as usize];
+            x = self.parent[x as usize];
+        }
+        x
+    }
+
+    /// Union two sets by rank. Returns the new root.
+    pub fn union(&mut self, a: u32, b: u32) -> u32 {
+        let ra = self.find(a);
+        let rb = self.find(b);
+        if ra == rb {
+            return ra;
+        }
+        match self.rank[ra as usize].cmp(&self.rank[rb as usize]) {
+            std::cmp::Ordering::Less => {
+                self.parent[ra as usize] = rb;
+                rb
+            }
+            std::cmp::Ordering::Greater => {
+                self.parent[rb as usize] = ra;
+                ra
+            }
+            std::cmp::Ordering::Equal => {
+                self.parent[rb as usize] = ra;
+                self.rank[ra as usize] += 1;
+                ra
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_union_find() {
+        let mut uf = UnionFind::new(5);
+        assert_ne!(uf.find(0), uf.find(1));
+        uf.union(0, 1);
+        assert_eq!(uf.find(0), uf.find(1));
+        uf.union(2, 3);
+        assert_eq!(uf.find(2), uf.find(3));
+        assert_ne!(uf.find(0), uf.find(2));
+        uf.union(1, 3);
+        assert_eq!(uf.find(0), uf.find(3));
+    }
+
+    #[test]
+    fn test_path_compression() {
+        let mut uf = UnionFind::new(100);
+        for i in 0..99 {
+            uf.union(i, i + 1);
+        }
+        let root = uf.find(0);
+        // After find with path compression, all should converge quickly
+        for i in 0..100 {
+            assert_eq!(uf.find(i), root);
+        }
+    }
+}

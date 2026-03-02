@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "contourrs"
+version = "0.1.0"
+description = "Fast raster polygonization with Arrow export — pure Rust, zero GDAL"
+requires-python = ">=3.9"
+license = "MIT"
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+arrow = ["pyarrow"]
+test = ["rasterio", "shapely", "pytest", "pyarrow"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+manifest-path = "crates/contourrs-python/Cargo.toml"
+python-source = "python"
+module-name = "contourrs._contourrs"

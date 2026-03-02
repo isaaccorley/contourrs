@@ -1,0 +1,16 @@
+[package]
+name = "contourrs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "_contourrs"
+crate-type = ["cdylib"]
+
+[dependencies]
+contourrs-core = { path = "../contourrs-core", features = ["arrow"] }
+arrow = { version = "54", default-features = false, features = ["ffi"] }
+geo-types = "0.7"
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
