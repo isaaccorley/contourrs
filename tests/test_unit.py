@@ -2,9 +2,7 @@
 
 import numpy as np
 import pyarrow as pa
-
 from contourrs import contours, contours_arrow, shapes, shapes_arrow
-
 
 # ── shapes ──────────────────────────────────────────────────────────────
 

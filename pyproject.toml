@@ -24,5 +24,27 @@ module-name = "contourrs._contourrs"
 markers = ["integration: requires rasterio + shapely"]
 addopts = "-m 'not integration'"
 
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",       # pydocstyle — too noisy for small project
+    "ANN",     # type annotations — covered by ty
+    "ERA",     # commented-out code
+    "T20",     # print statements (used in notebooks/tests)
+    "S101",    # assert in tests
+    "INP001",  # implicit namespace packages
+    "PTH",     # pathlib preference — not always cleaner
+    "FBT",     # boolean positional args
+    "PLR0913", # too many arguments
+    "COM812",  # trailing comma (conflicts with formatter)
+    "ISC001",  # implicit string concat (conflicts with formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004", "PT018", "BLE001", "PLR1722", "PLC0415"]
+"examples/*" = ["T20", "E402", "F811", "PLR2004", "ICN001", "PLC0415"]
+"scripts/*" = ["T20", "ICN001", "E402"]
+"*.pyi" = ["PYI021", "PYI048", "PYI044", "PYI002", "PIE790", "UP045", "ICN001"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

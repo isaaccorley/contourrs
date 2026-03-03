@@ -41,6 +41,8 @@ for geojson, value in shapes(raster, connectivity=4):
     print(f"value={value}, type={geojson['type']}")
 ```
 
+![Polygonize: raster to vector](assets/polygonize.png)
+
 ### Contours (continuous rasters)
 
 ```python
@@ -52,6 +54,8 @@ dem = np.random.default_rng(42).random((256, 256)).astype(np.float32)
 for geojson, value in contours(dem, thresholds=[0.25, 0.5, 0.75]):
     print(f"band={value}, rings={len(geojson['coordinates'])}")
 ```
+
+![Contours: DEM to isobands](assets/contours.png)
 
 ### Arrow output (zero-copy, GeoParquet-ready)
 

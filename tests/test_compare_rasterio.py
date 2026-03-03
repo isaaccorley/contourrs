@@ -4,12 +4,11 @@ Integration tests — require rasterio + shapely.
 Run with: pytest -m integration --extra test
 """
 
-import pytest
 import numpy as np
+import pytest
+from contourrs import shapes as rust_shapes
 from rasterio.features import shapes as rio_shapes
 from shapely.geometry import shape
-
-from contourrs import shapes as rust_shapes
 
 pytestmark = pytest.mark.integration
 
@@ -35,8 +34,7 @@ def compare_results(rust_result, rio_result, tolerance=1e-10):
         f"rio={sorted(rio_by_val.keys())}"
     )
 
-    for val in rust_by_val:
-        rust_polys = rust_by_val[val]
+    for val, rust_polys in rust_by_val.items():
         rio_polys = rio_by_val[val]
 
         # Merge all polygons for each value and compare total area/shape
