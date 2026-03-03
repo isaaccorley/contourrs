@@ -16,6 +16,23 @@ For Arrow/GeoParquet support:
 pip install contourrs[arrow]
 ```
 
+## Development
+
+```bash
+git clone https://github.com/isaaccorley/contourrs.git
+cd contourrs
+uv sync --extra dev
+uv run maturin develop --release
+uv run pytest tests/ -v
+```
+
+Pre-commit hooks:
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
+
 ## Usage
 
 ### GeoJSON output (rasterio compatible)

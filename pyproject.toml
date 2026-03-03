@@ -13,6 +13,7 @@ dependencies = ["numpy"]
 [project.optional-dependencies]
 arrow = ["pyarrow"]
 test = ["rasterio", "shapely", "pytest", "pyarrow"]
+dev = ["rasterio", "shapely", "pytest", "pyarrow", "pre-commit", "ruff"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

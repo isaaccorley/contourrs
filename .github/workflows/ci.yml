@@ -47,17 +47,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
 
-      - name: Install maturin and build
-        run: |
-          pip install maturin
-          maturin develop --release
-
-      - name: Install test deps
-        run: pip install pyarrow rasterio shapely pytest numpy
+      - name: Build and install
+        run: uv run --python ${{ matrix.python-version }} --extra test maturin develop --release
 
       - name: Run comparison tests
-        run: pytest tests/ -v
+        run: uv run --python ${{ matrix.python-version }} --extra test pytest tests/ -v
