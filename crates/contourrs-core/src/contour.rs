@@ -361,17 +361,17 @@ fn march_isoline(
                     });
                 }
                 13 => {
-                    // Only BR outside
-                    segments.push(EdgeSegment {
-                        start: left(),
-                        end: bottom(),
-                    });
-                }
-                14 => {
-                    // Only BL outside
+                    // Only BR outside → crossings on bottom and right edges
                     segments.push(EdgeSegment {
                         start: bottom(),
                         end: right(),
+                    });
+                }
+                14 => {
+                    // Only BL outside → crossings on left and bottom edges
+                    segments.push(EdgeSegment {
+                        start: left(),
+                        end: bottom(),
                     });
                 }
                 _ => {} // 0 and 15 handled above

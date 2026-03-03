@@ -184,6 +184,30 @@ def test_contours_with_transform():
     assert min(xs) >= 490.0  # transformed coords
 
 
+def test_contours_gaussian():
+    """Regression test: smooth Gaussian field must produce contours."""
+    y, x = np.mgrid[-3:3:64j, -3:3:64j]
+    dem = np.exp(-(x**2 + y**2)).astype(np.float32)
+    result = contours(dem, thresholds=[0.1, 0.3, 0.5, 0.7, 0.9])
+    assert len(result) >= 3
+    band_values = {v for _, v in result}
+    assert 0.1 in band_values
+    assert 0.3 in band_values
+    assert 0.5 in band_values
+
+
+def test_contours_geopandas_roundtrip():
+    """Arrow table → GeoPandas GeoDataFrame via from_arrow."""
+    import geopandas as gpd
+
+    data = np.linspace(0, 1, 64).reshape(8, 8).astype(np.float32)
+    table = contours_arrow(data, thresholds=[0.25, 0.5, 0.75])
+    gdf = gpd.GeoDataFrame.from_arrow(table)
+    assert len(gdf) > 0
+    assert "geometry" in gdf.columns
+    assert "value" in gdf.columns
+
+
 # ── contours_arrow ──────────────────────────────────────────────────────
 
 

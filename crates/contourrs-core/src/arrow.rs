@@ -66,8 +66,21 @@ pub fn polygons_to_record_batch(
     // Schema with GeoParquet metadata
     let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
 
+    // GeoArrow extension type on geometry field (for GeoPandas from_arrow)
+    let geometry_field = Field::new("geometry", DataType::Binary, false).with_metadata(
+        vec![
+            (
+                "ARROW:extension:name".to_string(),
+                "geoarrow.wkb".to_string(),
+            ),
+            ("ARROW:extension:metadata".to_string(), "{}".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+
     let schema = Schema::new(vec![
-        Field::new("geometry", DataType::Binary, false),
+        geometry_field,
         Field::new("value", DataType::Float64, false),
     ])
     .with_metadata(
