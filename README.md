@@ -1,19 +1,13 @@
 # contourrs
 
-Fast raster polygonization in pure Rust with Python bindings. Drop-in replacement for `rasterio.features.shapes` — no GDAL dependency.
+Fast raster polygonization and contouring in pure Rust with Python bindings. Drop-in replacement for `rasterio.features.shapes` — no GDAL dependency.
 
-Converts discrete/categorical rasters (segmentation masks, land cover, classified imagery) into vector polygons with their pixel values. Built for the ML-to-GIS pipeline: model inference output goes in, GeoJSON or GeoParquet comes out.
+Converts discrete/categorical rasters (segmentation masks, land cover, classified imagery) into vector polygons with their pixel values. Also supports continuous-field contouring (DEMs, probability maps, heatmaps) via marching squares isobands. Built for the ML-to-GIS pipeline: model inference output goes in, GeoJSON or GeoParquet comes out.
 
 ## Install
 
 ```bash
 pip install contourrs
-```
-
-For Arrow/GeoParquet support:
-
-```bash
-pip install contourrs[arrow]
 ```
 
 ## Development
@@ -35,7 +29,7 @@ uv run pre-commit run --all-files
 
 ## Usage
 
-### GeoJSON output (rasterio compatible)
+### Polygonize (discrete/categorical rasters)
 
 ```python
 import numpy as np
@@ -47,16 +41,44 @@ for geojson, value in shapes(raster, connectivity=4):
     print(f"value={value}, type={geojson['type']}")
 ```
 
+### Contours (continuous rasters)
+
+```python
+import numpy as np
+from contourrs import contours
+
+dem = np.random.default_rng(42).random((256, 256)).astype(np.float32)
+
+for geojson, value in contours(dem, thresholds=[0.25, 0.5, 0.75]):
+    print(f"band={value}, rings={len(geojson['coordinates'])}")
+```
+
 ### Arrow output (zero-copy, GeoParquet-ready)
 
 ```python
-from contourrs import shapes_arrow
+from contourrs import shapes_arrow, contours_arrow
 
+# Discrete raster → Arrow Table
 table = shapes_arrow(raster, connectivity=4)
+
+# Continuous raster → Arrow Table
+table = contours_arrow(dem, thresholds=[0.25, 0.5, 0.75])
+
 # table.schema: geometry (binary/WKB), value (float64)
 # GeoParquet metadata included — write directly:
 import pyarrow.parquet as pq
 pq.write_table(table, "output.parquet")
+```
+
+### Convert to GeoPandas
+
+Both `shapes_arrow()` and `contours_arrow()` return tables with GeoParquet metadata, so GeoPandas can read them directly:
+
+```python
+import geopandas as gpd
+
+gdf = gpd.GeoDataFrame.from_arrow(shapes_arrow(raster))
+gdf = gpd.GeoDataFrame.from_arrow(contours_arrow(dem, thresholds=[0.25, 0.5, 0.75]))
 ```
 
 ### With affine transform and mask
@@ -66,6 +88,7 @@ transform = (10.0, 0.0, 500000.0, 0.0, -10.0, 4500000.0)  # (a, b, c, d, e, f)
 mask = raster != 0  # exclude nodata
 
 shapes(raster, mask=mask, connectivity=8, transform=transform)
+contours(dem, thresholds=[0.25, 0.5, 0.75], mask=mask, transform=transform)
 ```
 
 ## API
@@ -88,6 +111,20 @@ Returns `pyarrow.Table` with columns:
 
 Schema includes GeoParquet metadata. 5-6x faster than `shapes()` at scale by eliminating Python dict overhead.
 
+### `contours(source, thresholds, mask=None, transform=None)`
+
+Returns `list[tuple[dict, float]]` — GeoJSON geometry dicts paired with the lower threshold of each band. Uses marching squares to produce filled isoband polygons between consecutive threshold pairs.
+
+**Parameters:**
+- `source` — 2D numpy array (uint8/16/32, int16/32, float32/64)
+- `thresholds` — list of break values (at least 2); bands formed from consecutive pairs
+- `mask` — optional 2D bool array (True = include)
+- `transform` — 6-element affine tuple `(a, b, c, d, e, f)`
+
+### `contours_arrow(source, thresholds, mask=None, transform=None)`
+
+Same as `contours()` but returns a `pyarrow.Table` with WKB geometry and GeoParquet metadata.
+
 ## Performance
 
 Benchmarked against `rasterio.features.shapes` on random categorical rasters:
@@ -103,10 +140,16 @@ Benchmarked against `rasterio.features.shapes` on random categorical rasters:
 
 ## Architecture
 
-Two-pass algorithm mirroring GDAL's `GDALPolygonize`:
+**Polygonize** — two-pass algorithm mirroring GDAL's `GDALPolygonize`:
 
 1. **Region labeling** — connected-component labeling via union-find with path compression. Supports 4- and 8-connectivity with optional mask.
 2. **Boundary tracing** — direct contour tracing with turn-priority logic. Classifies exterior rings (CCW) and holes (CW). Applies affine transform to output coordinates.
+
+**Contours** — two-isoline marching squares decomposition:
+
+1. For each band [lo, hi), run standard 16-case marching squares at both thresholds.
+2. Set-difference the resulting rings: lo-exteriors become isoband boundaries, hi-exteriors become holes.
+3. Interpolation along cell edges places boundaries at sub-pixel precision.
 
 **Workspace layout:**
 - `contourrs-core` — pure Rust library, returns `geo_types::Polygon<f64>`

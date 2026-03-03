@@ -313,21 +313,17 @@ dependencies = [
     { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-
-[package.optional-dependencies]
-arrow = [
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pyarrow", version = "23.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
+
+[package.optional-dependencies]
 dev = [
     { name = "ipykernel", version = "6.31.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "ipykernel", version = "7.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "nbconvert" },
     { name = "pre-commit", version = "4.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pre-commit", version = "4.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "pyarrow", version = "23.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "rasterio", version = "1.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -339,8 +335,6 @@ dev = [
     { name = "ty" },
 ]
 test = [
-    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "pyarrow", version = "23.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "rasterio", version = "1.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -356,9 +350,7 @@ requires-dist = [
     { name = "nbconvert", marker = "extra == 'dev'" },
     { name = "numpy" },
     { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "pyarrow", marker = "extra == 'arrow'" },
-    { name = "pyarrow", marker = "extra == 'dev'" },
-    { name = "pyarrow", marker = "extra == 'test'" },
+    { name = "pyarrow" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'test'" },
     { name = "rasterio", marker = "extra == 'dev'" },
@@ -368,7 +360,7 @@ requires-dist = [
     { name = "shapely", marker = "extra == 'test'" },
     { name = "ty", marker = "extra == 'dev'" },
 ]
-provides-extras = ["arrow", "test", "dev"]
+provides-extras = ["test", "dev"]
 
 [[package]]
 name = "debugpy"
