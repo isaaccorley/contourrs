@@ -16,9 +16,9 @@ mod kernel;
 pub use kernel::{CudaDevice, GpuLabelResult};
 
 use crate::connectivity::Connectivity;
+use crate::polygon;
 use crate::trace;
 use crate::transform::AffineTransform;
-use crate::polygon;
 use geo_types::Polygon;
 
 /// Polygonize a raster that is already on GPU.
@@ -45,14 +45,8 @@ pub fn polygonize_gpu(
     transform: AffineTransform,
 ) -> Vec<(Polygon<f64>, f64)> {
     // Pass 1: GPU CCL — returns label grid on CPU
-    let label_result = kernel::gpu_label_regions(
-        device,
-        gpu_ptr,
-        width,
-        height,
-        mask_gpu_ptr,
-        connectivity,
-    );
+    let label_result =
+        kernel::gpu_label_regions(device, gpu_ptr, width, height, mask_gpu_ptr, connectivity);
 
     // Pass 2: CPU boundary tracing (same as CPU path)
     let mut polygons = trace::trace_polygons(&label_result.into(), values_host, &transform);

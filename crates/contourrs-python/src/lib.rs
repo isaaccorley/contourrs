@@ -1,3 +1,5 @@
+#![allow(clippy::useless_conversion)] // false positive from PyO3 proc macro expansion
+
 use arrow::array::{Array, StructArray};
 use arrow::ffi::to_ffi;
 use numpy::{Element, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
@@ -19,7 +21,11 @@ fn parse_args<'py>(
     let conn = match connectivity {
         4 => Connectivity::Four,
         8 => Connectivity::Eight,
-        _ => return Err(pyo3::exceptions::PyValueError::new_err("connectivity must be 4 or 8")),
+        _ => {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "connectivity must be 4 or 8",
+            ))
+        }
     };
     let affine = match transform {
         Some((a, b, c, d, e, f)) => AffineTransform::new(a, b, c, d, e, f),
@@ -38,15 +44,12 @@ fn parse_args<'py>(
     Ok((conn, affine, mask_opt, dtype_str))
 }
 
-fn run_polygonize<T: RasterValue>(
+fn run_polygonize<T: RasterValue + Element>(
     arr: &PyReadonlyArray2<T>,
     mask: Option<&[bool]>,
     connectivity: Connectivity,
     transform: AffineTransform,
-) -> Vec<(geo_types::Polygon<f64>, f64)>
-where
-    T: Element,
-{
+) -> Vec<(geo_types::Polygon<f64>, f64)> {
     let shape = arr.shape();
     let (height, width) = (shape[0], shape[1]);
     let data = arr.as_slice().expect("contiguous array required");
@@ -119,7 +122,15 @@ fn shapes<'py>(
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
 ) -> PyResult<PyObject> {
     let (conn, affine, mask_opt, dtype) = parse_args(source, mask, connectivity, transform)?;
-    dtype_list!(dispatch_geojson, py, source, mask_opt.as_deref(), conn, affine, dtype.as_str())
+    dtype_list!(
+        dispatch_geojson,
+        py,
+        source,
+        mask_opt.as_deref(),
+        conn,
+        affine,
+        dtype.as_str()
+    )
 }
 
 fn polygons_to_geojson_list(
@@ -136,8 +147,7 @@ fn polygons_to_geojson_list(
             let dict = PyDict::new_bound(py);
             dict.set_item(type_key, polygon_str)?;
 
-            let mut ring_objects: Vec<PyObject> =
-                Vec::with_capacity(1 + polygon.interiors().len());
+            let mut ring_objects: Vec<PyObject> = Vec::with_capacity(1 + polygon.interiors().len());
             ring_objects.push(ring_to_py(py, polygon.exterior())?);
             for hole in polygon.interiors() {
                 ring_objects.push(ring_to_py(py, hole)?);
@@ -156,7 +166,7 @@ fn ring_to_py(py: Python<'_>, ring: &geo_types::LineString<f64>) -> PyResult<PyO
     let coord_objects: Vec<PyObject> = ring
         .0
         .iter()
-        .map(|c| PyTuple::new_bound(py, &[c.x, c.y]).to_object(py))
+        .map(|c| PyTuple::new_bound(py, [c.x, c.y]).to_object(py))
         .collect();
     Ok(PyList::new_bound(py, coord_objects).into())
 }
@@ -175,7 +185,15 @@ fn shapes_arrow<'py>(
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
 ) -> PyResult<PyObject> {
     let (conn, affine, mask_opt, dtype) = parse_args(source, mask, connectivity, transform)?;
-    dtype_list!(dispatch_arrow, py, source, mask_opt.as_deref(), conn, affine, dtype.as_str())
+    dtype_list!(
+        dispatch_arrow,
+        py,
+        source,
+        mask_opt.as_deref(),
+        conn,
+        affine,
+        dtype.as_str()
+    )
 }
 
 fn polygons_to_arrow_table(

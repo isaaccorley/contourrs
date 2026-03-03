@@ -5,7 +5,7 @@ from contourrs._contourrs import shapes
 __all__ = ["shapes"]
 
 try:
-    from contourrs._contourrs import shapes_arrow
+    from contourrs._contourrs import shapes_arrow  # noqa: F401
 
     __all__.append("shapes_arrow")
 except ImportError:

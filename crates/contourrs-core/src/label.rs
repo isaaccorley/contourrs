@@ -104,9 +104,9 @@ pub fn label_regions<T: RasterValue>(
     }
 
     // Resolve all labels to canonical roots
-    for i in 0..n {
-        if labels[i] != u32::MAX {
-            labels[i] = uf.find(labels[i]);
+    for label in labels.iter_mut().take(n) {
+        if *label != u32::MAX {
+            *label = uf.find(*label);
         }
     }
 
@@ -172,7 +172,7 @@ mod tests {
         // value=1: (0,0),(2,0),(1,1) share label; value=2: (1,0),(0,1),(2,1) share label
         let l1 = result.labels[0]; // (0,0) value=1
         assert_eq!(result.labels[2], l1); // (2,0) connects via (1,1) diagonal? No — (2,0) and (1,1) are diagonal
-        // Actually: (0,0) val=1, (1,1) val=1, diagonal => same region in 8-conn
+                                          // Actually: (0,0) val=1, (1,1) val=1, diagonal => same region in 8-conn
         assert_eq!(result.labels[4], l1); // (1,1) value=1
     }
 

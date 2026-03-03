@@ -14,8 +14,7 @@ pub fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
     let num_rings = 1 + interiors.len();
 
     // Estimate capacity: header(9) + num_rings(4) + rings
-    let total_points: usize =
-        exterior.0.len() + interiors.iter().map(|r| r.0.len()).sum::<usize>();
+    let total_points: usize = exterior.0.len() + interiors.iter().map(|r| r.0.len()).sum::<usize>();
     let mut buf = Vec::with_capacity(9 + 4 + num_rings * 4 + total_points * 16);
 
     // Byte order: 1 = little-endian
@@ -107,10 +106,7 @@ mod tests {
         assert_eq!(wkb[0], 1); // little-endian
         assert_eq!(u32::from_le_bytes([wkb[1], wkb[2], wkb[3], wkb[4]]), 3); // Polygon
         assert_eq!(u32::from_le_bytes([wkb[5], wkb[6], wkb[7], wkb[8]]), 1); // 1 ring
-        assert_eq!(
-            u32::from_le_bytes([wkb[9], wkb[10], wkb[11], wkb[12]]),
-            5
-        ); // 5 points
+        assert_eq!(u32::from_le_bytes([wkb[9], wkb[10], wkb[11], wkb[12]]), 5); // 5 points
     }
 
     #[test]

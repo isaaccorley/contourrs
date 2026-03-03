@@ -68,9 +68,16 @@ pub fn trace_polygons(
                 let vi = row * stride + col;
                 if visited[vi] & (1 << DIR_RIGHT) == 0 {
                     let ring = trace_ring(
-                        labels, w, h,
-                        col as i32, row as i32, DIR_RIGHT, below,
-                        &mut visited, stride, transform,
+                        labels,
+                        w,
+                        h,
+                        col as i32,
+                        row as i32,
+                        DIR_RIGHT,
+                        below,
+                        &mut visited,
+                        stride,
+                        transform,
                     );
                     if ring.0.len() >= 4 {
                         rings.push((below, ring));
@@ -82,9 +89,16 @@ pub fn trace_polygons(
                 let vi = row * stride + col + 1;
                 if visited[vi] & (1 << DIR_LEFT) == 0 {
                     let ring = trace_ring(
-                        labels, w, h,
-                        col as i32 + 1, row as i32, DIR_LEFT, above,
-                        &mut visited, stride, transform,
+                        labels,
+                        w,
+                        h,
+                        col as i32 + 1,
+                        row as i32,
+                        DIR_LEFT,
+                        above,
+                        &mut visited,
+                        stride,
+                        transform,
                     );
                     if ring.0.len() >= 4 {
                         rings.push((above, ring));
@@ -107,9 +121,16 @@ pub fn trace_polygons(
                 let vi = row * stride + col;
                 if visited[vi] & (1 << DIR_DOWN) == 0 {
                     let ring = trace_ring(
-                        labels, w, h,
-                        col as i32, row as i32, DIR_DOWN, left,
-                        &mut visited, stride, transform,
+                        labels,
+                        w,
+                        h,
+                        col as i32,
+                        row as i32,
+                        DIR_DOWN,
+                        left,
+                        &mut visited,
+                        stride,
+                        transform,
                     );
                     if ring.0.len() >= 4 {
                         rings.push((left, ring));
@@ -121,9 +142,16 @@ pub fn trace_polygons(
                 let vi = (row + 1) * stride + col;
                 if visited[vi] & (1 << DIR_UP) == 0 {
                     let ring = trace_ring(
-                        labels, w, h,
-                        col as i32, row as i32 + 1, DIR_UP, right,
-                        &mut visited, stride, transform,
+                        labels,
+                        w,
+                        h,
+                        col as i32,
+                        row as i32 + 1,
+                        DIR_UP,
+                        right,
+                        &mut visited,
+                        stride,
+                        transform,
                     );
                     if ring.0.len() >= 4 {
                         rings.push((right, ring));
@@ -138,6 +166,7 @@ pub fn trace_polygons(
 
 /// Trace a single closed ring contour.
 #[inline(never)]
+#[allow(clippy::too_many_arguments)]
 fn trace_ring(
     labels: &[u32],
     w: usize,
@@ -248,7 +277,7 @@ fn build_polygons(
                 let exterior = &rings[ext_idx].1;
                 let mut my_holes = Vec::new();
                 for &hole_idx in &holes {
-                    if point_in_ring(&rings[hole_idx].1.0[0], exterior) {
+                    if point_in_ring(&rings[hole_idx].1 .0[0], exterior) {
                         my_holes.push(rings[hole_idx].1.clone());
                     }
                 }

@@ -2,7 +2,6 @@
 
 import numpy as np
 from rasterio.features import shapes as rio_shapes
-from rasterio.transform import from_bounds
 from shapely.geometry import shape
 
 from contourrs import shapes as rust_shapes
@@ -50,6 +49,7 @@ def compare_results(rust_result, rio_result, tolerance=1e-10):
 def to_rasterio_transform(transform_tuple):
     """Convert (a,b,c,d,e,f) to rasterio Affine."""
     from affine import Affine
+
     a, b, c, d, e, f = transform_tuple
     return Affine(a, b, c, d, e, f)
 

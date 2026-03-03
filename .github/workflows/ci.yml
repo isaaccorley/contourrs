@@ -26,7 +26,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
+        run: cargo clippy --workspace --features contourrs-core/arrow -- -D warnings
 
       - name: Test core
         run: cargo test -p contourrs-core

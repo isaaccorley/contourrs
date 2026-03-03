@@ -85,12 +85,7 @@ mod tests {
     fn test_single_value() {
         let data = vec![1u8; 4];
         let grid = RasterGrid::new(&data, 2, 2);
-        let result = polygonize(
-            &grid,
-            None,
-            Connectivity::Four,
-            AffineTransform::identity(),
-        );
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].1, 1.0);
     }
@@ -101,12 +96,7 @@ mod tests {
         // 1 2
         let data = vec![1u8, 2, 1, 2];
         let grid = RasterGrid::new(&data, 2, 2);
-        let result = polygonize(
-            &grid,
-            None,
-            Connectivity::Four,
-            AffineTransform::identity(),
-        );
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
         assert_eq!(result.len(), 2);
         let values: std::collections::HashSet<u64> =
             result.iter().map(|(_, v)| v.to_bits()).collect();
@@ -118,12 +108,7 @@ mod tests {
     fn test_single_pixel() {
         let data = vec![42u8];
         let grid = RasterGrid::new(&data, 1, 1);
-        let result = polygonize(
-            &grid,
-            None,
-            Connectivity::Four,
-            AffineTransform::identity(),
-        );
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].1, 42.0);
         // Should be a unit square
@@ -135,12 +120,7 @@ mod tests {
     fn test_empty_grid() {
         let data: Vec<u8> = vec![];
         let grid = RasterGrid::new(&data, 0, 0);
-        let result = polygonize(
-            &grid,
-            None,
-            Connectivity::Four,
-            AffineTransform::identity(),
-        );
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
         assert!(result.is_empty());
     }
 
@@ -177,12 +157,7 @@ mod tests {
     fn test_f32_values() {
         let data = vec![1.5f32, 2.5, 1.5, 2.5];
         let grid = RasterGrid::new(&data, 2, 2);
-        let result = polygonize(
-            &grid,
-            None,
-            Connectivity::Four,
-            AffineTransform::identity(),
-        );
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
         let values: std::collections::HashSet<u64> =
             result.iter().map(|(_, v)| v.to_bits()).collect();
         assert!(values.contains(&1.5f64.to_bits()));
@@ -196,12 +171,7 @@ mod tests {
         // 1 1 1
         let data = vec![1u8, 1, 1, 1, 2, 1, 1, 1, 1];
         let grid = RasterGrid::new(&data, 3, 3);
-        let result = polygonize(
-            &grid,
-            None,
-            Connectivity::Four,
-            AffineTransform::identity(),
-        );
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
         assert_eq!(result.len(), 2);
         // One polygon for value=1 (with a hole), one for value=2
         let poly_1 = result.iter().find(|(_, v)| *v == 1.0).unwrap();

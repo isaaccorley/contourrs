@@ -1,18 +1,16 @@
 repos:
-  # Rust formatting
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
+  # Rust formatting + linting
+  - repo: https://github.com/AndrejOrsula/pre-commit-cargo
+    rev: 0.5.0
     hooks:
-      - id: fmt
-        args: ["--all", "--"]
-      - id: clippy
-        args: ["--workspace", "--all-features", "--", "-D", "warnings"]
-
-  # Cargo.toml formatting
-  - repo: https://github.com/weditor/pre-commit-cargo-toml-fmt
-    rev: v0.1.0
-    hooks:
-      - id: cargo-toml-fmt
+      - id: cargo-fmt
+        args: ["--all", "--", "--check"]
+      - id: cargo-clippy
+        args: ["--workspace", "--features", "contourrs-core/arrow", "--", "-D", "warnings"]
+      - id: cargo-check
+        args: ["--workspace", "--features", "contourrs-core/arrow"]
+      - id: cargo-test
+        args: ["--workspace"]
 
   # General file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -26,7 +24,7 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=500"]
 
-  # Python (if editing Python stubs/tests)
+  # Python linting + formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.10
     hooks:

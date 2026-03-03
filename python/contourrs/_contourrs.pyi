@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from typing import Optional
+
 import numpy as np
+import pyarrow
 from numpy.typing import NDArray
 
 def shapes(
@@ -19,7 +23,7 @@ def shapes_arrow(
     mask: Optional[NDArray[np.bool_]] = None,
     connectivity: int = 4,
     transform: Optional[tuple[float, ...]] = None,
-) -> "pyarrow.Table":
+) -> pyarrow.Table:
     """Extract polygon shapes as a PyArrow Table with WKB geometry.
 
     Columns: geometry (binary/WKB), value (float64).
