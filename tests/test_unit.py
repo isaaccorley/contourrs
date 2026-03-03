@@ -196,7 +196,8 @@ def test_contours_gaussian():
 
 def test_contours_geopandas_roundtrip():
     """Arrow table → GeoPandas GeoDataFrame via from_arrow."""
-    import geopandas as gpd
+    pytest = __import__("pytest")
+    gpd = pytest.importorskip("geopandas")
 
     data = np.linspace(0, 1, 64).reshape(8, 8).astype(np.float32)
     table = contours_arrow(data, thresholds=[0.25, 0.5, 0.75])

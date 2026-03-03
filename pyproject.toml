@@ -22,7 +22,7 @@ module-name = "contourrs._contourrs"
 
 [tool.pytest.ini_options]
 markers = ["integration: requires rasterio + shapely"]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration' --ignore=tests/test_compare_rasterio.py"
 
 [tool.ruff.lint]
 select = ["ALL"]
