@@ -13,15 +13,21 @@ impl UnionFind {
     }
 
     /// Find root with path compression.
+    #[inline]
     pub fn find(&mut self, mut x: u32) -> u32 {
-        while self.parent[x as usize] != x {
-            self.parent[x as usize] = self.parent[self.parent[x as usize] as usize];
-            x = self.parent[x as usize];
+        loop {
+            let p = self.parent[x as usize];
+            if p == x {
+                return x;
+            }
+            let gp = self.parent[p as usize];
+            self.parent[x as usize] = gp;
+            x = gp;
         }
-        x
     }
 
     /// Union two sets by rank. Returns the new root.
+    #[inline]
     pub fn union(&mut self, a: u32, b: u32) -> u32 {
         let ra = self.find(a);
         let rb = self.find(b);

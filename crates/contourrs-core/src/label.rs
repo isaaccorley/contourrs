@@ -104,7 +104,7 @@ pub fn label_regions<T: RasterValue>(
     }
 
     // Resolve all labels to canonical roots
-    for label in labels.iter_mut().take(n) {
+    for label in labels.iter_mut() {
         if *label != u32::MAX {
             *label = uf.find(*label);
         }

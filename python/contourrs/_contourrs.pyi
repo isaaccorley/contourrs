@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 
 def shapes(
     source: NDArray,
-    mask: Optional[NDArray[np.bool_]] = None,
+    mask: NDArray[np.bool_] | None = None,
     connectivity: int = 4,
-    transform: Optional[tuple[float, ...]] = None,
+    transform: tuple[float, ...] | None = None,
 ) -> list[tuple[dict, float]]:
     """Extract polygon shapes from a raster array.
 
@@ -36,9 +36,9 @@ def shapes(
 
 def shapes_arrow(
     source: NDArray,
-    mask: Optional[NDArray[np.bool_]] = None,
+    mask: NDArray[np.bool_] | None = None,
     connectivity: int = 4,
-    transform: Optional[tuple[float, ...]] = None,
+    transform: tuple[float, ...] | None = None,
 ) -> pyarrow.Table:
     """Extract polygon shapes as a PyArrow Table with WKB geometry.
 
@@ -66,8 +66,8 @@ def shapes_arrow(
 def contours(
     source: NDArray,
     thresholds: list[float],
-    mask: Optional[NDArray[np.bool_]] = None,
-    transform: Optional[tuple[float, ...]] = None,
+    mask: NDArray[np.bool_] | None = None,
+    transform: tuple[float, ...] | None = None,
 ) -> list[tuple[dict, float]]:
     """Generate filled contour (isoband) polygons from a continuous raster.
 
@@ -96,8 +96,8 @@ def contours(
 def contours_arrow(
     source: NDArray,
     thresholds: list[float],
-    mask: Optional[NDArray[np.bool_]] = None,
-    transform: Optional[tuple[float, ...]] = None,
+    mask: NDArray[np.bool_] | None = None,
+    transform: tuple[float, ...] | None = None,
 ) -> pyarrow.Table:
     """Generate filled contour polygons as a PyArrow Table with WKB geometry.
 

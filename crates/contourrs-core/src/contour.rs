@@ -14,9 +14,11 @@
 //! CW lo-rings and reversed CCW hi-rings become holes. Standard 16-case
 //! marching squares with saddle disambiguation via center value.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use geo_types::{Coord, LineString, Polygon};
+use rayon::prelude::*;
 
 use crate::geometry::{point_in_ring, signed_area};
 use crate::polygon::normalize_polygon;
@@ -55,33 +57,50 @@ pub fn contours<T: RasterValue>(
         return Vec::new();
     }
 
-    // Pre-convert grid to f64 for interpolation
-    let f64_data: Vec<f64> = grid.data.iter().map(|v| v.to_f64_value()).collect();
+    // Pre-convert grid to f64 for interpolation (zero-copy when T is already f64)
+    let f64_data: Cow<[f64]> = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // SAFETY: T is f64, so &[T] and &[f64] have identical layout
+        let ptr = grid.data.as_ptr() as *const f64;
+        let len = grid.data.len();
+        Cow::Borrowed(unsafe { std::slice::from_raw_parts(ptr, len) })
+    } else {
+        Cow::Owned(grid.data.iter().map(|v| v.to_f64_value()).collect())
+    };
     let w = grid.width;
     let h = grid.height;
 
     let mut result = Vec::new();
 
+    // Hoist det computation — invariant across threshold pairs
+    let det = transform.a * transform.e - transform.b * transform.d;
+
+    // Cache hi_rings from previous iteration to reuse as lo_rings
+    let mut cached_rings: Option<Vec<LineString<f64>>> = None;
+
     for pair in thresholds.windows(2) {
         let lo = pair[0];
         let hi = pair[1];
 
-        // Generate isoline segments at both thresholds
-        let lo_segments = march_isoline(&f64_data, w, h, lo, mask);
+        // Reuse previous hi_rings as lo_rings when available
+        let lo_rings = match cached_rings.take() {
+            Some(rings) => rings,
+            None => {
+                let lo_segments = march_isoline(&f64_data, w, h, lo, mask);
+                chain_segments(&lo_segments)
+            }
+        };
         let hi_segments = march_isoline(&f64_data, w, h, hi, mask);
-
-        // Chain into rings
-        let lo_rings = chain_segments(&lo_segments);
         let hi_rings = chain_segments(&hi_segments);
 
         if lo_rings.is_empty() {
+            // Cache hi_rings (move, no clone) and skip to next pair
+            cached_rings = Some(hi_rings);
             continue;
         }
 
         // Classify and transform rings.
         // The marching squares "inside to the left" convention in y-down coords
         // means iso-exterior rings are CW (negative signed_area with positive det).
-        let det = transform.a * transform.e - transform.b * transform.d;
         let mut exteriors: Vec<LineString<f64>> = Vec::new();
         let mut holes: Vec<LineString<f64>> = Vec::new();
 
@@ -116,6 +135,9 @@ pub fn contours<T: RasterValue>(
             // Holes in {val >= hi} → already covered by lo-exterior, ignore
         }
 
+        // Cache hi_rings for next iteration (move after borrow ends — no clone needed)
+        cached_rings = Some(hi_rings);
+
         if exteriors.is_empty() {
             continue;
         }
@@ -131,16 +153,24 @@ pub fn contours<T: RasterValue>(
                 result.push((normalize_polygon(poly), lo));
             }
         } else {
-            for ext in &exteriors {
+            // Pre-compute hole areas + exterior bboxes for spatial filtering
+            let hole_areas: Vec<f64> = holes.iter().map(|h| signed_area(h).abs()).collect();
+            let ext_bboxes: Vec<BBox> = exteriors.iter().map(BBox::from_ring).collect();
+            for (j, ext) in exteriors.iter().enumerate() {
                 let mut my_holes = Vec::new();
-                for hole in &holes {
-                    if !hole.0.is_empty() && point_in_ring(&hole.0[0], ext) {
-                        my_holes.push(hole.clone());
+                let mut my_hole_area = 0.0_f64;
+                for (i, hole) in holes.iter().enumerate() {
+                    if !hole.0.is_empty() {
+                        let hp = &hole.0[0];
+                        // Bbox pre-filter: skip expensive point_in_ring if outside bbox
+                        if ext_bboxes[j].contains_point(hp) && point_in_ring(hp, ext) {
+                            my_holes.push(hole.clone());
+                            my_hole_area += hole_areas[i];
+                        }
                     }
                 }
                 let ext_area = signed_area(ext).abs();
-                let hole_area: f64 = my_holes.iter().map(|h| signed_area(h).abs()).sum();
-                let net_area = ext_area - hole_area;
+                let net_area = ext_area - my_hole_area;
                 if net_area > f64::EPSILON {
                     let poly = Polygon::new(ext.clone(), my_holes);
                     result.push((normalize_polygon(poly), lo));
@@ -163,6 +193,52 @@ struct EdgeSegment {
 }
 
 // ---------------------------------------------------------------------------
+// Bounding box for spatial indexing
+// ---------------------------------------------------------------------------
+
+struct BBox {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+}
+
+impl BBox {
+    #[inline]
+    fn from_ring(ring: &LineString<f64>) -> Self {
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for c in &ring.0 {
+            if c.x < min_x {
+                min_x = c.x;
+            }
+            if c.x > max_x {
+                max_x = c.x;
+            }
+            if c.y < min_y {
+                min_y = c.y;
+            }
+            if c.y > max_y {
+                max_y = c.y;
+            }
+        }
+        Self {
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+        }
+    }
+
+    #[inline]
+    fn contains_point(&self, p: &Coord<f64>) -> bool {
+        p.x >= self.min_x && p.x <= self.max_x && p.y >= self.min_y && p.y <= self.max_y
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Standard 16-case marching squares isoline
 // ---------------------------------------------------------------------------
 
@@ -181,7 +257,204 @@ fn grid_val(data: &[f64], w: usize, h: usize, col: i32, row: i32, mask: Option<&
     data[idx]
 }
 
+/// Process a single row of the marching-squares grid, returning segments.
+#[inline]
+fn march_row(
+    data: &[f64],
+    w: usize,
+    h: usize,
+    row: i32,
+    threshold: f64,
+    mask: Option<&[bool]>,
+) -> Vec<EdgeSegment> {
+    let mut segments = Vec::new();
+    let mut prev_tr = f64::NAN;
+    let mut prev_br = f64::NAN;
+
+    for col in -1..w as i32 {
+        let tl;
+        let bl;
+        if col == -1 {
+            tl = grid_val(data, w, h, col, row, mask);
+            bl = grid_val(data, w, h, col, row + 1, mask);
+        } else {
+            tl = prev_tr;
+            bl = prev_br;
+        }
+        let tr = grid_val(data, w, h, col + 1, row, mask);
+        let br = grid_val(data, w, h, col + 1, row + 1, mask);
+        prev_tr = tr;
+        prev_br = br;
+
+        // Skip cells with NaN
+        if tl.is_nan() || tr.is_nan() || bl.is_nan() || br.is_nan() {
+            continue;
+        }
+
+        // Binary classification: 1 if >= threshold, 0 if < threshold
+        let tl_bit = u8::from(tl >= threshold);
+        let tr_bit = u8::from(tr >= threshold);
+        let br_bit = u8::from(br >= threshold);
+        let bl_bit = u8::from(bl >= threshold);
+
+        let code = tl_bit * 8 + tr_bit * 4 + br_bit * 2 + bl_bit;
+
+        if code == 0 || code == 15 {
+            continue; // All same → no crossing
+        }
+
+        let cx = col as f64;
+        let cy = row as f64;
+
+        // Edge crossing points
+        let top = || Coord {
+            x: cx + interp(tl, tr, threshold),
+            y: cy,
+        };
+        let right = || Coord {
+            x: cx + 1.0,
+            y: cy + interp(tr, br, threshold),
+        };
+        let bottom = || Coord {
+            x: cx + 1.0 - interp(br, bl, threshold),
+            y: cy + 1.0,
+        };
+        let left = || Coord {
+            x: cx,
+            y: cy + 1.0 - interp(bl, tl, threshold),
+        };
+
+        // Standard 16-case table. Convention: inside (val >= t) is to the
+        // left of the segment direction.
+        match code {
+            1 => {
+                segments.push(EdgeSegment {
+                    start: bottom(),
+                    end: left(),
+                });
+            }
+            2 => {
+                segments.push(EdgeSegment {
+                    start: right(),
+                    end: bottom(),
+                });
+            }
+            3 => {
+                segments.push(EdgeSegment {
+                    start: right(),
+                    end: left(),
+                });
+            }
+            4 => {
+                segments.push(EdgeSegment {
+                    start: top(),
+                    end: right(),
+                });
+            }
+            5 => {
+                let center = (tl + tr + br + bl) * 0.25;
+                if center >= threshold {
+                    segments.push(EdgeSegment {
+                        start: top(),
+                        end: left(),
+                    });
+                    segments.push(EdgeSegment {
+                        start: right(),
+                        end: bottom(),
+                    });
+                } else {
+                    segments.push(EdgeSegment {
+                        start: top(),
+                        end: right(),
+                    });
+                    segments.push(EdgeSegment {
+                        start: bottom(),
+                        end: left(),
+                    });
+                }
+            }
+            6 => {
+                segments.push(EdgeSegment {
+                    start: top(),
+                    end: bottom(),
+                });
+            }
+            7 => {
+                segments.push(EdgeSegment {
+                    start: top(),
+                    end: left(),
+                });
+            }
+            8 => {
+                segments.push(EdgeSegment {
+                    start: left(),
+                    end: top(),
+                });
+            }
+            9 => {
+                segments.push(EdgeSegment {
+                    start: bottom(),
+                    end: top(),
+                });
+            }
+            10 => {
+                let center = (tl + tr + br + bl) * 0.25;
+                if center >= threshold {
+                    segments.push(EdgeSegment {
+                        start: left(),
+                        end: bottom(),
+                    });
+                    segments.push(EdgeSegment {
+                        start: right(),
+                        end: top(),
+                    });
+                } else {
+                    segments.push(EdgeSegment {
+                        start: left(),
+                        end: top(),
+                    });
+                    segments.push(EdgeSegment {
+                        start: right(),
+                        end: bottom(),
+                    });
+                }
+            }
+            11 => {
+                segments.push(EdgeSegment {
+                    start: right(),
+                    end: top(),
+                });
+            }
+            12 => {
+                segments.push(EdgeSegment {
+                    start: left(),
+                    end: right(),
+                });
+            }
+            13 => {
+                segments.push(EdgeSegment {
+                    start: bottom(),
+                    end: right(),
+                });
+            }
+            14 => {
+                segments.push(EdgeSegment {
+                    start: left(),
+                    end: bottom(),
+                });
+            }
+            _ => {} // 0 and 15 handled above
+        }
+    }
+
+    segments
+}
+
+/// Minimum grid area before rayon parallelization kicks in.
+const PARALLEL_THRESHOLD: usize = 128 * 128;
+
 /// Generate isoline segments at a single threshold using 16-case marching squares.
+/// Parallelized across rows with rayon for large grids.
 fn march_isoline(
     data: &[f64],
     w: usize,
@@ -189,197 +462,18 @@ fn march_isoline(
     threshold: f64,
     mask: Option<&[bool]>,
 ) -> Vec<EdgeSegment> {
-    let mut segments = Vec::new();
-
     // Extended grid: from -1..h, -1..w so boundary pixels get border cells
-    for row in -1..h as i32 {
-        for col in -1..w as i32 {
-            let tl = grid_val(data, w, h, col, row, mask);
-            let tr = grid_val(data, w, h, col + 1, row, mask);
-            let bl = grid_val(data, w, h, col, row + 1, mask);
-            let br = grid_val(data, w, h, col + 1, row + 1, mask);
+    let rows: Vec<i32> = (-1..h as i32).collect();
 
-            // Skip cells with NaN
-            if tl.is_nan() || tr.is_nan() || bl.is_nan() || br.is_nan() {
-                continue;
-            }
-
-            // Binary classification: 1 if >= threshold, 0 if < threshold
-            let tl_bit = u8::from(tl >= threshold);
-            let tr_bit = u8::from(tr >= threshold);
-            let br_bit = u8::from(br >= threshold);
-            let bl_bit = u8::from(bl >= threshold);
-
-            let code = tl_bit * 8 + tr_bit * 4 + br_bit * 2 + bl_bit;
-
-            if code == 0 || code == 15 {
-                continue; // All same → no crossing
-            }
-
-            let cx = col as f64;
-            let cy = row as f64;
-
-            // Edge crossing points
-            let top = || Coord {
-                x: cx + interp(tl, tr, threshold),
-                y: cy,
-            };
-            let right = || Coord {
-                x: cx + 1.0,
-                y: cy + interp(tr, br, threshold),
-            };
-            let bottom = || Coord {
-                x: cx + 1.0 - interp(br, bl, threshold),
-                y: cy + 1.0,
-            };
-            let left = || Coord {
-                x: cx,
-                y: cy + 1.0 - interp(bl, tl, threshold),
-            };
-
-            // Standard 16-case table. Convention: inside (val >= t) is to the
-            // left of the segment direction.
-            match code {
-                1 => {
-                    // Only BL inside
-                    segments.push(EdgeSegment {
-                        start: bottom(),
-                        end: left(),
-                    });
-                }
-                2 => {
-                    // Only BR inside
-                    segments.push(EdgeSegment {
-                        start: right(),
-                        end: bottom(),
-                    });
-                }
-                3 => {
-                    // BL + BR inside
-                    segments.push(EdgeSegment {
-                        start: right(),
-                        end: left(),
-                    });
-                }
-                4 => {
-                    // Only TR inside
-                    segments.push(EdgeSegment {
-                        start: top(),
-                        end: right(),
-                    });
-                }
-                5 => {
-                    // TR + BL inside (saddle)
-                    let center = (tl + tr + br + bl) * 0.25;
-                    if center >= threshold {
-                        // Connected through center
-                        segments.push(EdgeSegment {
-                            start: top(),
-                            end: left(),
-                        });
-                        segments.push(EdgeSegment {
-                            start: right(),
-                            end: bottom(),
-                        });
-                    } else {
-                        // Disconnected
-                        segments.push(EdgeSegment {
-                            start: top(),
-                            end: right(),
-                        });
-                        segments.push(EdgeSegment {
-                            start: bottom(),
-                            end: left(),
-                        });
-                    }
-                }
-                6 => {
-                    // TR + BR inside
-                    segments.push(EdgeSegment {
-                        start: top(),
-                        end: bottom(),
-                    });
-                }
-                7 => {
-                    // Only TL outside
-                    segments.push(EdgeSegment {
-                        start: top(),
-                        end: left(),
-                    });
-                }
-                8 => {
-                    // Only TL inside
-                    segments.push(EdgeSegment {
-                        start: left(),
-                        end: top(),
-                    });
-                }
-                9 => {
-                    // TL + BL inside
-                    segments.push(EdgeSegment {
-                        start: bottom(),
-                        end: top(),
-                    });
-                }
-                10 => {
-                    // TL + BR inside (saddle)
-                    let center = (tl + tr + br + bl) * 0.25;
-                    if center >= threshold {
-                        // Connected through center
-                        segments.push(EdgeSegment {
-                            start: left(),
-                            end: bottom(),
-                        });
-                        segments.push(EdgeSegment {
-                            start: right(),
-                            end: top(),
-                        });
-                    } else {
-                        // Disconnected
-                        segments.push(EdgeSegment {
-                            start: left(),
-                            end: top(),
-                        });
-                        segments.push(EdgeSegment {
-                            start: right(),
-                            end: bottom(),
-                        });
-                    }
-                }
-                11 => {
-                    // Only TR outside
-                    segments.push(EdgeSegment {
-                        start: right(),
-                        end: top(),
-                    });
-                }
-                12 => {
-                    // TL + TR inside
-                    segments.push(EdgeSegment {
-                        start: left(),
-                        end: right(),
-                    });
-                }
-                13 => {
-                    // Only BR outside → crossings on bottom and right edges
-                    segments.push(EdgeSegment {
-                        start: bottom(),
-                        end: right(),
-                    });
-                }
-                14 => {
-                    // Only BL outside → crossings on left and bottom edges
-                    segments.push(EdgeSegment {
-                        start: left(),
-                        end: bottom(),
-                    });
-                }
-                _ => {} // 0 and 15 handled above
-            }
-        }
+    if w * h >= PARALLEL_THRESHOLD {
+        rows.into_par_iter()
+            .flat_map_iter(|row| march_row(data, w, h, row, threshold, mask))
+            .collect()
+    } else {
+        rows.into_iter()
+            .flat_map(|row| march_row(data, w, h, row, threshold, mask))
+            .collect()
     }
-
-    segments
 }
 
 /// Linear interpolation fraction.
@@ -405,6 +499,7 @@ fn interp(v0: f64, v1: f64, threshold: f64) -> f64 {
 
 type PointKey = (i64, i64);
 
+#[inline]
 fn quantize(c: &Coord<f64>) -> PointKey {
     ((c.x * 1e10).round() as i64, (c.y * 1e10).round() as i64)
 }
@@ -415,7 +510,7 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
     }
 
     // Build adjacency: start endpoint → segment index
-    let mut endpoint_map: HashMap<PointKey, Vec<usize>> = HashMap::new();
+    let mut endpoint_map: HashMap<PointKey, Vec<usize>> = HashMap::with_capacity(segments.len());
     for (i, seg) in segments.iter().enumerate() {
         endpoint_map
             .entry(quantize(&seg.start))
@@ -477,6 +572,7 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
 // Transform helper
 // ---------------------------------------------------------------------------
 
+#[inline]
 fn apply_transform(ring: &LineString<f64>, transform: &AffineTransform) -> LineString<f64> {
     LineString(
         ring.0

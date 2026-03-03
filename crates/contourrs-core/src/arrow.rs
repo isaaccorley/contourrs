@@ -35,11 +35,24 @@ pub fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
     buf
 }
 
+#[inline]
 fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
     buf.extend_from_slice(&(coords.len() as u32).to_le_bytes());
-    for c in coords {
-        buf.extend_from_slice(&c.x.to_le_bytes());
-        buf.extend_from_slice(&c.y.to_le_bytes());
+    // On little-endian: Coord<f64> memory layout matches WKB LE format directly.
+    // Reinterpret the entire coords slice as bytes in one shot.
+    #[cfg(target_endian = "little")]
+    {
+        // SAFETY: Coord<f64> is two contiguous f64s, no padding on LE targets.
+        let byte_len = std::mem::size_of_val(coords);
+        let ptr = coords.as_ptr() as *const u8;
+        buf.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, byte_len) });
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        for c in coords {
+            buf.extend_from_slice(&c.x.to_le_bytes());
+            buf.extend_from_slice(&c.y.to_le_bytes());
+        }
     }
 }
 

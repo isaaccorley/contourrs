@@ -1,8 +1,9 @@
 //! Shared geometry helpers: signed area, point-in-ring, polygon assembly.
 
-use geo_types::{Coord, LineString, Polygon};
+use geo_types::{Coord, LineString};
 
 /// Signed area of a ring (positive = CCW, negative = CW).
+#[inline]
 pub fn signed_area(ring: &LineString<f64>) -> f64 {
     let coords = &ring.0;
     let n = coords.len();
@@ -18,9 +19,36 @@ pub fn signed_area(ring: &LineString<f64>) -> f64 {
 }
 
 /// Ray-casting point-in-polygon test.
+#[inline]
 pub fn point_in_ring(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
     let coords = &ring.0;
     let n = coords.len();
+
+    // Bounding box pre-check
+    if n > 0 {
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for c in coords {
+            if c.x < min_x {
+                min_x = c.x;
+            }
+            if c.x > max_x {
+                max_x = c.x;
+            }
+            if c.y < min_y {
+                min_y = c.y;
+            }
+            if c.y > max_y {
+                max_y = c.y;
+            }
+        }
+        if point.x < min_x || point.x > max_x || point.y < min_y || point.y > max_y {
+            return false;
+        }
+    }
+
     let mut inside = false;
     let mut j = n - 1;
     for i in 0..n {
@@ -35,39 +63,6 @@ pub fn point_in_ring(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
         j = i;
     }
     inside
-}
-
-/// Classify rings as exterior/hole and assemble into polygons.
-///
-/// - `det`: determinant of affine transform (a*e - b*d)
-/// - Positive det → positive area = exterior; negative det → reversed
-pub fn build_polygons_from_rings(
-    exteriors: &[LineString<f64>],
-    holes: &[LineString<f64>],
-    value: f64,
-) -> Vec<(Polygon<f64>, f64)> {
-    if exteriors.is_empty() {
-        return Vec::new();
-    }
-
-    if exteriors.len() == 1 {
-        let polygon = Polygon::new(exteriors[0].clone(), holes.to_vec());
-        return vec![(polygon, value)];
-    }
-
-    // Multiple exteriors: assign each hole to the containing exterior
-    let mut result = Vec::with_capacity(exteriors.len());
-    for ext in exteriors {
-        let mut my_holes = Vec::new();
-        for hole in holes {
-            if point_in_ring(&hole.0[0], ext) {
-                my_holes.push(hole.clone());
-            }
-        }
-        let polygon = Polygon::new(ext.clone(), my_holes);
-        result.push((polygon, value));
-    }
-    result
 }
 
 #[cfg(test)]

@@ -2,153 +2,59 @@
 
 use arrow::array::{Array, StructArray};
 use arrow::ffi::to_ffi;
-use numpy::{Element, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
-use contourrs_core::{AffineTransform, Connectivity, RasterGrid, RasterValue};
-
-// ---------------------------------------------------------------------------
-// Contour helpers
-// ---------------------------------------------------------------------------
-
-fn parse_contour_args<'py>(
-    source: &Bound<'py, pyo3::PyAny>,
-    mask: Option<&Bound<'py, pyo3::PyAny>>,
-    transform: Option<(f64, f64, f64, f64, f64, f64)>,
-) -> PyResult<(AffineTransform, Option<Vec<bool>>, String)> {
-    let affine = match transform {
-        Some((a, b, c, d, e, f)) => AffineTransform::new(a, b, c, d, e, f),
-        None => AffineTransform::identity(),
-    };
-    let mask_opt: Option<Vec<bool>> = if let Some(mask_arr) = mask {
-        let mask_np = mask_arr
-            .downcast::<numpy::PyArray2<bool>>()
-            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array"))?;
-        let mask_ro = mask_np.readonly();
-        Some(mask_ro.as_slice()?.to_vec())
-    } else {
-        None
-    };
-    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
-    Ok((affine, mask_opt, dtype_str))
-}
-
-fn run_contours<T: RasterValue + Element>(
-    arr: &PyReadonlyArray2<T>,
-    thresholds: &[f64],
-    mask: Option<&[bool]>,
-    transform: AffineTransform,
-) -> Vec<(geo_types::Polygon<f64>, f64)> {
-    let shape = arr.shape();
-    let (height, width) = (shape[0], shape[1]);
-    let data = arr.as_slice().expect("contiguous array required");
-    let grid = RasterGrid::new(data, width, height);
-    contourrs_core::contours(&grid, thresholds, mask, transform)
-}
-
-macro_rules! dispatch_contour_geojson {
-    ($py:expr, $source:expr, $thresholds:expr, $mask:expr, $affine:expr, $dtype:expr,
-     $($ty:ty => $name:expr),+ $(,)?) => {
-        match $dtype {
-            $( $name => {
-                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
-                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
-                        format!("Cannot interpret source as {}", $name)))?;
-                let arr = arr.readonly();
-                let polys = run_contours(&arr, $thresholds, $mask, $affine);
-                polygons_to_geojson_list($py, &polys)
-            })+
-            other => Err(pyo3::exceptions::PyTypeError::new_err(
-                format!("Unsupported dtype: {}", other))),
-        }
-    };
-}
-
-macro_rules! dispatch_contour_arrow {
-    ($py:expr, $source:expr, $thresholds:expr, $mask:expr, $affine:expr, $dtype:expr,
-     $($ty:ty => $name:expr),+ $(,)?) => {
-        match $dtype {
-            $( $name => {
-                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
-                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
-                        format!("Cannot interpret source as {}", $name)))?;
-                let arr = arr.readonly();
-                let polys = run_contours(&arr, $thresholds, $mask, $affine);
-                polygons_to_arrow_table($py, &polys)
-            })+
-            other => Err(pyo3::exceptions::PyTypeError::new_err(
-                format!("Unsupported dtype: {}", other))),
-        }
-    };
-}
-
-macro_rules! contour_dtype_list {
-    ($mac:ident, $py:expr, $source:expr, $thresholds:expr, $mask:expr, $affine:expr, $dtype:expr) => {
-        $mac!(
-            $py, $source, $thresholds, $mask, $affine, $dtype,
-            u8 => "uint8", u16 => "uint16", u32 => "uint32",
-            i16 => "int16", i32 => "int32",
-            f32 => "float32", f64 => "float64",
-        )
-    };
-}
+use contourrs_core::{AffineTransform, Connectivity, RasterGrid};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn parse_args<'py>(
-    source: &Bound<'py, pyo3::PyAny>,
-    mask: Option<&Bound<'py, pyo3::PyAny>>,
-    connectivity: u8,
+/// Emit let-bindings for mask guard + slice. The guard (`_mask_ro`) keeps
+/// the numpy array alive; `mask_slice` is `Option<&[bool]>`.
+macro_rules! extract_mask {
+    ($mask:expr => $guard:ident, $slice:ident) => {
+        let $guard: Option<PyReadonlyArray2<bool>> = if let Some(mask_arr) = $mask {
+            let mask_np = mask_arr.downcast::<numpy::PyArray2<bool>>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array")
+            })?;
+            Some(mask_np.readonly())
+        } else {
+            None
+        };
+        let $slice = $guard.as_ref().map(|m| m.as_slice()).transpose()?;
+    };
+}
+
+fn parse_transform(
+    connectivity: Option<u8>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
-) -> PyResult<(Connectivity, AffineTransform, Option<Vec<bool>>, String)> {
+) -> PyResult<(Option<Connectivity>, AffineTransform)> {
     let conn = match connectivity {
-        4 => Connectivity::Four,
-        8 => Connectivity::Eight,
-        _ => {
+        Some(4) => Some(Connectivity::Four),
+        Some(8) => Some(Connectivity::Eight),
+        Some(_) => {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "connectivity must be 4 or 8",
             ))
         }
+        None => None,
     };
     let affine = match transform {
         Some((a, b, c, d, e, f)) => AffineTransform::new(a, b, c, d, e, f),
         None => AffineTransform::identity(),
     };
-    let mask_opt: Option<Vec<bool>> = if let Some(mask_arr) = mask {
-        let mask_np = mask_arr
-            .downcast::<numpy::PyArray2<bool>>()
-            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array"))?;
-        let mask_ro = mask_np.readonly();
-        Some(mask_ro.as_slice()?.to_vec())
-    } else {
-        None
-    };
-    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
-    Ok((conn, affine, mask_opt, dtype_str))
-}
-
-fn run_polygonize<T: RasterValue + Element>(
-    arr: &PyReadonlyArray2<T>,
-    mask: Option<&[bool]>,
-    connectivity: Connectivity,
-    transform: AffineTransform,
-) -> Vec<(geo_types::Polygon<f64>, f64)> {
-    let shape = arr.shape();
-    let (height, width) = (shape[0], shape[1]);
-    let data = arr.as_slice().expect("contiguous array required");
-    let grid = RasterGrid::new(data, width, height);
-    contourrs_core::polygonize(&grid, mask, connectivity, transform)
+    Ok((conn, affine))
 }
 
 // ---------------------------------------------------------------------------
-// Dtype dispatch macros
+// Dtype dispatch macros (polygonize)
 // ---------------------------------------------------------------------------
 
 macro_rules! dispatch_geojson {
-    ($py:expr, $source:expr, $mask:expr, $conn:expr, $affine:expr, $dtype:expr,
+    ($py:expr, $source:expr, $mask_slice:expr, $conn:expr, $affine:expr, $dtype:expr,
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
@@ -156,7 +62,13 @@ macro_rules! dispatch_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let polys = run_polygonize(&arr, $mask, $conn, $affine);
+                let data = arr.as_slice().expect("contiguous array required");
+                let shape = arr.shape();
+                let (height, width) = (shape[0], shape[1]);
+                let polys = $py.allow_threads(|| {
+                    let grid = RasterGrid::new(data, width, height);
+                    contourrs_core::polygonize(&grid, $mask_slice, $conn, $affine)
+                });
                 polygons_to_geojson_list($py, &polys)
             })+
             other => Err(pyo3::exceptions::PyTypeError::new_err(
@@ -166,7 +78,7 @@ macro_rules! dispatch_geojson {
 }
 
 macro_rules! dispatch_arrow {
-    ($py:expr, $source:expr, $mask:expr, $conn:expr, $affine:expr, $dtype:expr,
+    ($py:expr, $source:expr, $mask_slice:expr, $conn:expr, $affine:expr, $dtype:expr,
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
@@ -174,7 +86,13 @@ macro_rules! dispatch_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let polys = run_polygonize(&arr, $mask, $conn, $affine);
+                let data = arr.as_slice().expect("contiguous array required");
+                let shape = arr.shape();
+                let (height, width) = (shape[0], shape[1]);
+                let polys = $py.allow_threads(|| {
+                    let grid = RasterGrid::new(data, width, height);
+                    contourrs_core::polygonize(&grid, $mask_slice, $conn, $affine)
+                });
                 polygons_to_arrow_table($py, &polys)
             })+
             other => Err(pyo3::exceptions::PyTypeError::new_err(
@@ -184,9 +102,74 @@ macro_rules! dispatch_arrow {
 }
 
 macro_rules! dtype_list {
-    ($mac:ident, $py:expr, $source:expr, $mask:expr, $conn:expr, $affine:expr, $dtype:expr) => {
+    ($mac:ident, $py:expr, $source:expr, $mask_slice:expr, $conn:expr, $affine:expr, $dtype:expr) => {
         $mac!(
-            $py, $source, $mask, $conn, $affine, $dtype,
+            $py, $source, $mask_slice, $conn, $affine, $dtype,
+            u8 => "uint8", u16 => "uint16", u32 => "uint32",
+            i16 => "int16", i32 => "int32",
+            f32 => "float32", f64 => "float64",
+        )
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Dtype dispatch macros (contours)
+// ---------------------------------------------------------------------------
+
+macro_rules! dispatch_contour_geojson {
+    ($py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $dtype:expr,
+     $($ty:ty => $name:expr),+ $(,)?) => {
+        match $dtype {
+            $( $name => {
+                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
+                        format!("Cannot interpret source as {}", $name)))?;
+                let arr = arr.readonly();
+                let data = arr.as_slice().expect("contiguous array required");
+                let shape = arr.shape();
+                let (height, width) = (shape[0], shape[1]);
+                let thresholds = $thresholds;
+                let polys = $py.allow_threads(|| {
+                    let grid = RasterGrid::new(data, width, height);
+                    contourrs_core::contours(&grid, thresholds, $mask_slice, $affine)
+                });
+                polygons_to_geojson_list($py, &polys)
+            })+
+            other => Err(pyo3::exceptions::PyTypeError::new_err(
+                format!("Unsupported dtype: {}", other))),
+        }
+    };
+}
+
+macro_rules! dispatch_contour_arrow {
+    ($py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $dtype:expr,
+     $($ty:ty => $name:expr),+ $(,)?) => {
+        match $dtype {
+            $( $name => {
+                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
+                        format!("Cannot interpret source as {}", $name)))?;
+                let arr = arr.readonly();
+                let data = arr.as_slice().expect("contiguous array required");
+                let shape = arr.shape();
+                let (height, width) = (shape[0], shape[1]);
+                let thresholds = $thresholds;
+                let polys = $py.allow_threads(|| {
+                    let grid = RasterGrid::new(data, width, height);
+                    contourrs_core::contours(&grid, thresholds, $mask_slice, $affine)
+                });
+                polygons_to_arrow_table($py, &polys)
+            })+
+            other => Err(pyo3::exceptions::PyTypeError::new_err(
+                format!("Unsupported dtype: {}", other))),
+        }
+    };
+}
+
+macro_rules! contour_dtype_list {
+    ($mac:ident, $py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $dtype:expr) => {
+        $mac!(
+            $py, $source, $thresholds, $mask_slice, $affine, $dtype,
             u8 => "uint8", u16 => "uint16", u32 => "uint32",
             i16 => "int16", i32 => "int32",
             f32 => "float32", f64 => "float64",
@@ -207,15 +190,20 @@ fn shapes<'py>(
     connectivity: u8,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
 ) -> PyResult<PyObject> {
-    let (conn, affine, mask_opt, dtype) = parse_args(source, mask, connectivity, transform)?;
+    let (conn, affine) = parse_transform(Some(connectivity), transform)?;
+    let conn = conn.unwrap();
+    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
+
+    extract_mask!(mask => _mask_ro, mask_slice);
+
     dtype_list!(
         dispatch_geojson,
         py,
         source,
-        mask_opt.as_deref(),
+        mask_slice,
         conn,
         affine,
-        dtype.as_str()
+        dtype_str.as_str()
     )
 }
 
@@ -270,15 +258,20 @@ fn shapes_arrow<'py>(
     connectivity: u8,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
 ) -> PyResult<PyObject> {
-    let (conn, affine, mask_opt, dtype) = parse_args(source, mask, connectivity, transform)?;
+    let (conn, affine) = parse_transform(Some(connectivity), transform)?;
+    let conn = conn.unwrap();
+    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
+
+    extract_mask!(mask => _mask_ro, mask_slice);
+
     dtype_list!(
         dispatch_arrow,
         py,
         source,
-        mask_opt.as_deref(),
+        mask_slice,
         conn,
         affine,
-        dtype.as_str()
+        dtype_str.as_str()
     )
 }
 
@@ -304,7 +297,7 @@ fn polygons_to_arrow_table(
     let rb_cls = pa.getattr("RecordBatch")?;
     let record_batch = rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr))?;
 
-    // Wrap as Table with GeoParquet metadata
+    // Wrap as Table with GeoParquet metadata (schema-level metadata lost in C Data Interface)
     let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
     let meta = PyDict::new_bound(py);
     meta.set_item(pyo3::intern!(py, "geo"), geo_meta)?;
@@ -332,15 +325,19 @@ fn contours<'py>(
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
 ) -> PyResult<PyObject> {
-    let (affine, mask_opt, dtype) = parse_contour_args(source, mask, transform)?;
+    let (_, affine) = parse_transform(None, transform)?;
+    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
+
+    extract_mask!(mask => _mask_ro, mask_slice);
+
     contour_dtype_list!(
         dispatch_contour_geojson,
         py,
         source,
         &thresholds,
-        mask_opt.as_deref(),
+        mask_slice,
         affine,
-        dtype.as_str()
+        dtype_str.as_str()
     )
 }
 
@@ -357,15 +354,19 @@ fn contours_arrow<'py>(
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
 ) -> PyResult<PyObject> {
-    let (affine, mask_opt, dtype) = parse_contour_args(source, mask, transform)?;
+    let (_, affine) = parse_transform(None, transform)?;
+    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
+
+    extract_mask!(mask => _mask_ro, mask_slice);
+
     contour_dtype_list!(
         dispatch_contour_arrow,
         py,
         source,
         &thresholds,
-        mask_opt.as_deref(),
+        mask_slice,
         affine,
-        dtype.as_str()
+        dtype_str.as_str()
     )
 }
 

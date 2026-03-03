@@ -48,11 +48,6 @@ impl<'a, T: RasterValue> RasterGrid<'a, T> {
     pub fn get(&self, col: usize, row: usize) -> T {
         self.data[row * self.width + col]
     }
-
-    #[inline]
-    pub fn index(&self, col: usize, row: usize) -> usize {
-        row * self.width + col
-    }
 }
 
 #[cfg(test)]

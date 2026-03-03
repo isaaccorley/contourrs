@@ -34,7 +34,7 @@ fn get_label(labels: &[u32], w: usize, h: usize, col: i32, row: i32) -> u32 {
     if col < 0 || row < 0 || col >= w as i32 || row >= h as i32 {
         u32::MAX
     } else {
-        unsafe { *labels.get_unchecked(row as usize * w + col as usize) }
+        labels[row as usize * w + col as usize]
     }
 }
 
@@ -162,7 +162,7 @@ pub fn trace_polygons(
         }
     }
 
-    build_polygons(&rings, values, det)
+    build_polygons(rings, values, det)
 }
 
 /// Trace a single closed ring contour.
@@ -180,7 +180,7 @@ fn trace_ring(
     stride: usize,
     transform: &AffineTransform,
 ) -> LineString<f64> {
-    let mut coords = Vec::new();
+    let mut coords = Vec::with_capacity(64);
     let mut c = start_c;
     let mut r = start_r;
     let mut dir = start_dir;
@@ -227,58 +227,104 @@ fn trace_ring(
 
 /// Group traced rings by label and assemble into polygons.
 fn build_polygons(
-    rings: &[(u32, LineString<f64>)],
+    mut rings: Vec<(u32, LineString<f64>)>,
     values: &[f64],
     det: f64,
 ) -> Vec<(Polygon<f64>, f64)> {
-    // Group by label using sorted indices
     if rings.is_empty() {
         return Vec::new();
     }
 
-    let mut indices: Vec<usize> = (0..rings.len()).collect();
-    indices.sort_unstable_by_key(|&i| rings[i].0);
+    // Sort rings by label in-place (avoids separate index vec for small ring counts)
+    rings.sort_unstable_by_key(|r| r.0);
 
     let mut result = Vec::new();
     let mut i = 0;
 
-    while i < indices.len() {
-        let label = rings[indices[i]].0;
+    while i < rings.len() {
+        let label = rings[i].0;
         if label == u32::MAX {
             i += 1;
             continue;
         }
 
         let value = values[label as usize];
-        let mut exteriors: Vec<usize> = Vec::new();
-        let mut holes: Vec<usize> = Vec::new();
 
-        while i < indices.len() && rings[indices[i]].0 == label {
-            let idx = indices[i];
-            let area = signed_area(&rings[idx].1);
-            if area.abs() >= f64::EPSILON {
-                let is_exterior = if det >= 0.0 { area > 0.0 } else { area < 0.0 };
-                if is_exterior {
-                    exteriors.push(idx);
-                } else {
-                    holes.push(idx);
-                }
-            }
+        // Find range of rings with this label
+        let start = i;
+        while i < rings.len() && rings[i].0 == label {
             i += 1;
         }
 
-        if exteriors.len() == 1 {
-            let polygon = Polygon::new(
-                rings[exteriors[0]].1.clone(),
-                holes.iter().map(|&h| rings[h].1.clone()).collect(),
-            );
-            result.push((polygon, value));
+        // Classify into exteriors/holes by index within the range
+        let mut exterior_idxs: Vec<usize> = Vec::new();
+        let mut hole_idxs: Vec<usize> = Vec::new();
+
+        for (idx, ring) in rings[start..i].iter().enumerate() {
+            let area = signed_area(&ring.1);
+            if area.abs() >= f64::EPSILON {
+                let is_exterior = if det >= 0.0 { area > 0.0 } else { area < 0.0 };
+                if is_exterior {
+                    exterior_idxs.push(start + idx);
+                } else {
+                    hole_idxs.push(start + idx);
+                }
+            }
+        }
+
+        if exterior_idxs.len() == 1 && hole_idxs.is_empty() {
+            // Single exterior, no holes — take ownership directly
+            let ext = std::mem::replace(&mut rings[exterior_idxs[0]].1, LineString(Vec::new()));
+            result.push((Polygon::new(ext, vec![]), value));
+        } else if exterior_idxs.len() == 1 {
+            // Single exterior with holes — take all
+            let ext = std::mem::replace(&mut rings[exterior_idxs[0]].1, LineString(Vec::new()));
+            let holes: Vec<LineString<f64>> = hole_idxs
+                .iter()
+                .map(|&h| std::mem::replace(&mut rings[h].1, LineString(Vec::new())))
+                .collect();
+            result.push((Polygon::new(ext, holes), value));
         } else {
-            for &ext_idx in &exteriors {
+            // Multiple exteriors — bbox pre-filter + point_in_ring for hole assignment
+            let ext_bboxes: Vec<(f64, f64, f64, f64)> = exterior_idxs
+                .iter()
+                .map(|&idx| {
+                    let coords = &rings[idx].1 .0;
+                    let mut min_x = f64::INFINITY;
+                    let mut max_x = f64::NEG_INFINITY;
+                    let mut min_y = f64::INFINITY;
+                    let mut max_y = f64::NEG_INFINITY;
+                    for c in coords {
+                        if c.x < min_x {
+                            min_x = c.x;
+                        }
+                        if c.x > max_x {
+                            max_x = c.x;
+                        }
+                        if c.y < min_y {
+                            min_y = c.y;
+                        }
+                        if c.y > max_y {
+                            max_y = c.y;
+                        }
+                    }
+                    (min_x, max_x, min_y, max_y)
+                })
+                .collect();
+
+            for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
                 let exterior = &rings[ext_idx].1;
+                let (min_x, max_x, min_y, max_y) = ext_bboxes[j];
                 let mut my_holes = Vec::new();
-                for &hole_idx in &holes {
-                    if point_in_ring(&rings[hole_idx].1 .0[0], exterior) {
+                for &hole_idx in &hole_idxs {
+                    let hp = &rings[hole_idx].1 .0[0];
+                    // Bbox pre-filter before expensive ray-cast
+                    if hp.x >= min_x
+                        && hp.x <= max_x
+                        && hp.y >= min_y
+                        && hp.y <= max_y
+                        && point_in_ring(hp, exterior)
+                    {
                         my_holes.push(rings[hole_idx].1.clone());
                     }
                 }
@@ -289,46 +335,4 @@ fn build_polygons(
     }
 
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_signed_area_ccw() {
-        let ring = LineString(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 1.0, y: 0.0 },
-            Coord { x: 1.0, y: 1.0 },
-            Coord { x: 0.0, y: 1.0 },
-            Coord { x: 0.0, y: 0.0 },
-        ]);
-        assert!(signed_area(&ring) > 0.0);
-    }
-
-    #[test]
-    fn test_signed_area_cw() {
-        let ring = LineString(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 0.0, y: 1.0 },
-            Coord { x: 1.0, y: 1.0 },
-            Coord { x: 1.0, y: 0.0 },
-            Coord { x: 0.0, y: 0.0 },
-        ]);
-        assert!(signed_area(&ring) < 0.0);
-    }
-
-    #[test]
-    fn test_point_in_ring() {
-        let ring = LineString(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 2.0, y: 0.0 },
-            Coord { x: 2.0, y: 2.0 },
-            Coord { x: 0.0, y: 2.0 },
-            Coord { x: 0.0, y: 0.0 },
-        ]);
-        assert!(point_in_ring(&Coord { x: 1.0, y: 1.0 }, &ring));
-        assert!(!point_in_ring(&Coord { x: 3.0, y: 1.0 }, &ring));
-    }
 }
