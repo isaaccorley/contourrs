@@ -7,7 +7,7 @@ name = "contourrs"
 version = "0.1.0"
 description = "Fast raster polygonization with Arrow export — pure Rust, zero GDAL"
 requires-python = ">=3.9"
-license = "MIT"
+license = "Apache-2.0"
 dependencies = ["numpy"]
 
 [project.optional-dependencies]
