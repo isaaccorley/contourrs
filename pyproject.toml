@@ -13,10 +13,13 @@ dependencies = ["numpy"]
 [project.optional-dependencies]
 arrow = ["pyarrow"]
 test = ["rasterio", "shapely", "pytest", "pyarrow"]
-dev = ["rasterio", "shapely", "pytest", "pyarrow", "pre-commit", "ruff", "ty"]
+dev = ["rasterio", "shapely", "pytest", "pyarrow", "pre-commit", "ruff", "ty", "nbconvert", "ipykernel"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 manifest-path = "crates/contourrs-python/Cargo.toml"
 python-source = "python"
 module-name = "contourrs._contourrs"
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
