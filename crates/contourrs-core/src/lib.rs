@@ -6,8 +6,10 @@
 #[cfg(feature = "arrow")]
 pub mod arrow;
 pub mod connectivity;
+pub mod contour;
 #[cfg(feature = "cuda")]
 pub mod cuda;
+pub mod geometry;
 pub mod label;
 pub mod polygon;
 pub mod raster;
@@ -16,6 +18,7 @@ pub mod transform;
 mod union_find;
 
 pub use connectivity::Connectivity;
+pub use contour::contours;
 pub use raster::{RasterGrid, RasterValue};
 pub use transform::AffineTransform;
 

@@ -9,6 +9,92 @@ use pyo3::types::{PyDict, PyList, PyTuple};
 use contourrs_core::{AffineTransform, Connectivity, RasterGrid, RasterValue};
 
 // ---------------------------------------------------------------------------
+// Contour helpers
+// ---------------------------------------------------------------------------
+
+fn parse_contour_args<'py>(
+    source: &Bound<'py, pyo3::PyAny>,
+    mask: Option<&Bound<'py, pyo3::PyAny>>,
+    transform: Option<(f64, f64, f64, f64, f64, f64)>,
+) -> PyResult<(AffineTransform, Option<Vec<bool>>, String)> {
+    let affine = match transform {
+        Some((a, b, c, d, e, f)) => AffineTransform::new(a, b, c, d, e, f),
+        None => AffineTransform::identity(),
+    };
+    let mask_opt: Option<Vec<bool>> = if let Some(mask_arr) = mask {
+        let mask_np = mask_arr
+            .downcast::<numpy::PyArray2<bool>>()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array"))?;
+        let mask_ro = mask_np.readonly();
+        Some(mask_ro.as_slice()?.to_vec())
+    } else {
+        None
+    };
+    let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
+    Ok((affine, mask_opt, dtype_str))
+}
+
+fn run_contours<T: RasterValue + Element>(
+    arr: &PyReadonlyArray2<T>,
+    thresholds: &[f64],
+    mask: Option<&[bool]>,
+    transform: AffineTransform,
+) -> Vec<(geo_types::Polygon<f64>, f64)> {
+    let shape = arr.shape();
+    let (height, width) = (shape[0], shape[1]);
+    let data = arr.as_slice().expect("contiguous array required");
+    let grid = RasterGrid::new(data, width, height);
+    contourrs_core::contours(&grid, thresholds, mask, transform)
+}
+
+macro_rules! dispatch_contour_geojson {
+    ($py:expr, $source:expr, $thresholds:expr, $mask:expr, $affine:expr, $dtype:expr,
+     $($ty:ty => $name:expr),+ $(,)?) => {
+        match $dtype {
+            $( $name => {
+                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
+                        format!("Cannot interpret source as {}", $name)))?;
+                let arr = arr.readonly();
+                let polys = run_contours(&arr, $thresholds, $mask, $affine);
+                polygons_to_geojson_list($py, &polys)
+            })+
+            other => Err(pyo3::exceptions::PyTypeError::new_err(
+                format!("Unsupported dtype: {}", other))),
+        }
+    };
+}
+
+macro_rules! dispatch_contour_arrow {
+    ($py:expr, $source:expr, $thresholds:expr, $mask:expr, $affine:expr, $dtype:expr,
+     $($ty:ty => $name:expr),+ $(,)?) => {
+        match $dtype {
+            $( $name => {
+                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
+                        format!("Cannot interpret source as {}", $name)))?;
+                let arr = arr.readonly();
+                let polys = run_contours(&arr, $thresholds, $mask, $affine);
+                polygons_to_arrow_table($py, &polys)
+            })+
+            other => Err(pyo3::exceptions::PyTypeError::new_err(
+                format!("Unsupported dtype: {}", other))),
+        }
+    };
+}
+
+macro_rules! contour_dtype_list {
+    ($mac:ident, $py:expr, $source:expr, $thresholds:expr, $mask:expr, $affine:expr, $dtype:expr) => {
+        $mac!(
+            $py, $source, $thresholds, $mask, $affine, $dtype,
+            u8 => "uint8", u16 => "uint16", u32 => "uint32",
+            i16 => "int16", i32 => "int32",
+            f32 => "float32", f64 => "float64",
+        )
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -234,6 +320,56 @@ fn polygons_to_arrow_table(
 }
 
 // ---------------------------------------------------------------------------
+// contours() — isoband GeoJSON dicts
+// ---------------------------------------------------------------------------
+
+#[pyfunction]
+#[pyo3(signature = (source, thresholds, mask=None, transform=None))]
+fn contours<'py>(
+    py: Python<'py>,
+    source: &Bound<'py, pyo3::PyAny>,
+    thresholds: Vec<f64>,
+    mask: Option<&Bound<'py, pyo3::PyAny>>,
+    transform: Option<(f64, f64, f64, f64, f64, f64)>,
+) -> PyResult<PyObject> {
+    let (affine, mask_opt, dtype) = parse_contour_args(source, mask, transform)?;
+    contour_dtype_list!(
+        dispatch_contour_geojson,
+        py,
+        source,
+        &thresholds,
+        mask_opt.as_deref(),
+        affine,
+        dtype.as_str()
+    )
+}
+
+// ---------------------------------------------------------------------------
+// contours_arrow() — isoband Arrow Table with WKB geometry
+// ---------------------------------------------------------------------------
+
+#[pyfunction]
+#[pyo3(signature = (source, thresholds, mask=None, transform=None))]
+fn contours_arrow<'py>(
+    py: Python<'py>,
+    source: &Bound<'py, pyo3::PyAny>,
+    thresholds: Vec<f64>,
+    mask: Option<&Bound<'py, pyo3::PyAny>>,
+    transform: Option<(f64, f64, f64, f64, f64, f64)>,
+) -> PyResult<PyObject> {
+    let (affine, mask_opt, dtype) = parse_contour_args(source, mask, transform)?;
+    contour_dtype_list!(
+        dispatch_contour_arrow,
+        py,
+        source,
+        &thresholds,
+        mask_opt.as_deref(),
+        affine,
+        dtype.as_str()
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------------
 
@@ -241,5 +377,7 @@ fn polygons_to_arrow_table(
 fn _contourrs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(shapes, m)?)?;
     m.add_function(wrap_pyfunction!(shapes_arrow, m)?)?;
+    m.add_function(wrap_pyfunction!(contours, m)?)?;
+    m.add_function(wrap_pyfunction!(contours_arrow, m)?)?;
     Ok(())
 }

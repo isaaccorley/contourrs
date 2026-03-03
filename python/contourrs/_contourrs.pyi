@@ -62,3 +62,63 @@ def shapes_arrow(
         Table with columns: ``geometry`` (binary/WKB), ``value`` (float64).
     """
     ...
+
+def contours(
+    source: NDArray,
+    thresholds: list[float],
+    mask: Optional[NDArray[np.bool_]] = None,
+    transform: Optional[tuple[float, ...]] = None,
+) -> list[tuple[dict, float]]:
+    """Generate filled contour (isoband) polygons from a continuous raster.
+
+    Uses marching squares to produce polygons between consecutive threshold
+    pairs. Returns the same format as ``shapes()`` for compatibility.
+
+    Parameters
+    ----------
+    source : NDArray
+        2D numpy array of raster values (uint8/16/32, int16/32, float32/64).
+    thresholds : list[float]
+        Break values. Bands are formed from consecutive pairs.
+        At least 2 thresholds required.
+    mask : NDArray[np.bool_], optional
+        2D boolean array. True = include pixel, False = exclude.
+    transform : tuple[float, ...], optional
+        Affine transform as (a, b, c, d, e, f). Default is identity.
+
+    Returns
+    -------
+    list[tuple[dict, float]]
+        List of (GeoJSON geometry dict, band lower threshold) tuples.
+    """
+    ...
+
+def contours_arrow(
+    source: NDArray,
+    thresholds: list[float],
+    mask: Optional[NDArray[np.bool_]] = None,
+    transform: Optional[tuple[float, ...]] = None,
+) -> pyarrow.Table:
+    """Generate filled contour polygons as a PyArrow Table with WKB geometry.
+
+    Same as ``contours()`` but returns an Arrow Table via zero-copy FFI.
+    Schema includes GeoParquet-compatible metadata.
+
+    Parameters
+    ----------
+    source : NDArray
+        2D numpy array of raster values (uint8/16/32, int16/32, float32/64).
+    thresholds : list[float]
+        Break values. Bands are formed from consecutive pairs.
+        At least 2 thresholds required.
+    mask : NDArray[np.bool_], optional
+        2D boolean array. True = include pixel, False = exclude.
+    transform : tuple[float, ...], optional
+        Affine transform as (a, b, c, d, e, f). Default is identity.
+
+    Returns
+    -------
+    pyarrow.Table
+        Table with columns: ``geometry`` (binary/WKB), ``value`` (float64).
+    """
+    ...

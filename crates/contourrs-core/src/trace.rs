@@ -1,3 +1,4 @@
+use crate::geometry::{point_in_ring, signed_area};
 use crate::label::LabelResult;
 use crate::transform::AffineTransform;
 use geo_types::{Coord, LineString, Polygon};
@@ -288,39 +289,6 @@ fn build_polygons(
     }
 
     result
-}
-
-fn signed_area(ring: &LineString<f64>) -> f64 {
-    let coords = &ring.0;
-    let n = coords.len();
-    if n < 3 {
-        return 0.0;
-    }
-    let mut area = 0.0;
-    for i in 0..n - 1 {
-        area += coords[i].x * coords[i + 1].y;
-        area -= coords[i + 1].x * coords[i].y;
-    }
-    area * 0.5
-}
-
-fn point_in_ring(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
-    let coords = &ring.0;
-    let n = coords.len();
-    let mut inside = false;
-    let mut j = n - 1;
-    for i in 0..n {
-        if ((coords[i].y > point.y) != (coords[j].y > point.y))
-            && (point.x
-                < (coords[j].x - coords[i].x) * (point.y - coords[i].y)
-                    / (coords[j].y - coords[i].y)
-                    + coords[i].x)
-        {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 #[cfg(test)]
