@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-import pyarrow
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    import pyarrow
 
 def shapes(
     source: NDArray,
