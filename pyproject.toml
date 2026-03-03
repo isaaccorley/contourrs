@@ -20,5 +20,9 @@ manifest-path = "crates/contourrs-python/Cargo.toml"
 python-source = "python"
 module-name = "contourrs._contourrs"
 
+[tool.pytest.ini_options]
+markers = ["integration: requires rasterio + shapely"]
+addopts = "-m 'not integration'"
+
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

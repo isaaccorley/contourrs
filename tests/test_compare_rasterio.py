@@ -1,10 +1,17 @@
-"""Compare contourrs output against rasterio.features.shapes."""
+"""Compare contourrs output against rasterio.features.shapes.
 
+Integration tests — require rasterio + shapely.
+Run with: pytest -m integration --extra test
+"""
+
+import pytest
 import numpy as np
 from rasterio.features import shapes as rio_shapes
 from shapely.geometry import shape
 
 from contourrs import shapes as rust_shapes
+
+pytestmark = pytest.mark.integration
 
 
 def normalize_polygon(geom_dict):

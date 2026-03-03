@@ -52,10 +52,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Build and install
-        run: uv run --python ${{ matrix.python-version }} --extra test --with maturin maturin develop --release
+        run: uv run --python ${{ matrix.python-version }} --with maturin --with pytest maturin develop --release
 
-      - name: Run comparison tests
-        run: uv run --python ${{ matrix.python-version }} --extra test pytest tests/ -v
+      - name: Run unit tests
+        run: uv run --python ${{ matrix.python-version }} --with pytest pytest tests/ -v
 
   examples:
     name: Example notebooks
