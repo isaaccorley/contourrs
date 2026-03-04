@@ -18,7 +18,7 @@ use contourrs::{AffineTransform, Connectivity, RasterGrid};
 macro_rules! extract_mask {
     ($mask:expr => $guard:ident, $slice:ident) => {
         let $guard: Option<PyReadonlyArray2<bool>> = if let Some(mask_arr) = $mask {
-            let mask_np = mask_arr.downcast::<numpy::PyArray2<bool>>().map_err(|_| {
+            let mask_np = mask_arr.cast::<numpy::PyArray2<bool>>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array")
             })?;
             Some(mask_np.readonly())
@@ -59,14 +59,14 @@ macro_rules! dispatch_geojson {
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
-                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                let arr = $source.cast::<numpy::PyArray2<$ty>>()
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
                 let data = arr.as_slice().expect("contiguous array required");
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
-                let polys = $py.allow_threads(|| {
+                let polys = $py.detach(|| {
                     let grid = RasterGrid::new(data, width, height);
                     contourrs::polygonize(&grid, $mask_slice, $conn, $affine)
                 });
@@ -83,14 +83,14 @@ macro_rules! dispatch_arrow {
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
-                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                let arr = $source.cast::<numpy::PyArray2<$ty>>()
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
                 let data = arr.as_slice().expect("contiguous array required");
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
-                let polys = $py.allow_threads(|| {
+                let polys = $py.detach(|| {
                     let grid = RasterGrid::new(data, width, height);
                     contourrs::polygonize(&grid, $mask_slice, $conn, $affine)
                 });
@@ -122,7 +122,7 @@ macro_rules! dispatch_contour_geojson {
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
-                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                let arr = $source.cast::<numpy::PyArray2<$ty>>()
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
@@ -130,7 +130,7 @@ macro_rules! dispatch_contour_geojson {
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
-                let polys = $py.allow_threads(|| {
+                let polys = $py.detach(|| {
                     let grid = RasterGrid::new(data, width, height);
                     contourrs::contours(&grid, thresholds, $mask_slice, $affine)
                 });
@@ -147,7 +147,7 @@ macro_rules! dispatch_contour_arrow {
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
-                let arr = $source.downcast::<numpy::PyArray2<$ty>>()
+                let arr = $source.cast::<numpy::PyArray2<$ty>>()
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
@@ -155,7 +155,7 @@ macro_rules! dispatch_contour_arrow {
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
-                let polys = $py.allow_threads(|| {
+                let polys = $py.detach(|| {
                     let grid = RasterGrid::new(data, width, height);
                     contourrs::contours(&grid, thresholds, $mask_slice, $affine)
                 });
@@ -190,7 +190,7 @@ fn shapes<'py>(
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     connectivity: u8,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let (conn, affine) = parse_transform(Some(connectivity), transform)?;
     let conn = conn.unwrap();
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
@@ -211,18 +211,19 @@ fn shapes<'py>(
 fn polygons_to_geojson_list(
     py: Python<'_>,
     polygons: &[(geo_types::Polygon<f64>, f64)],
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let type_key = pyo3::intern!(py, "type");
     let polygon_str = pyo3::intern!(py, "Polygon");
     let coords_key = pyo3::intern!(py, "coordinates");
 
-    let items: Vec<PyObject> = polygons
+    let items: Vec<Py<PyAny>> = polygons
         .iter()
         .map(|(polygon, value)| {
             let dict = PyDict::new(py);
             dict.set_item(type_key, polygon_str)?;
 
-            let mut ring_objects: Vec<PyObject> = Vec::with_capacity(1 + polygon.interiors().len());
+            let mut ring_objects: Vec<Py<PyAny>> =
+                Vec::with_capacity(1 + polygon.interiors().len());
             ring_objects.push(ring_to_py(py, polygon.exterior())?);
             for hole in polygon.interiors() {
                 ring_objects.push(ring_to_py(py, hole)?);
@@ -243,8 +244,8 @@ fn polygons_to_geojson_list(
     Ok(PyList::new(py, items)?.unbind().into_any())
 }
 
-fn ring_to_py(py: Python<'_>, ring: &geo_types::LineString<f64>) -> PyResult<PyObject> {
-    let coord_objects: Vec<PyObject> = ring
+fn ring_to_py(py: Python<'_>, ring: &geo_types::LineString<f64>) -> PyResult<Py<PyAny>> {
+    let coord_objects: Vec<Py<PyAny>> = ring
         .0
         .iter()
         .map(|c| Ok(PyTuple::new(py, [c.x, c.y])?.unbind().into_any()))
@@ -264,7 +265,7 @@ fn shapes_arrow<'py>(
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     connectivity: u8,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let (conn, affine) = parse_transform(Some(connectivity), transform)?;
     let conn = conn.unwrap();
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
@@ -285,7 +286,7 @@ fn shapes_arrow<'py>(
 fn polygons_to_arrow_table(
     py: Python<'_>,
     polygons: &[(geo_types::Polygon<f64>, f64)],
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Build RecordBatch in Rust
     let batch = contourrs::arrow::polygons_to_record_batch(polygons)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -331,7 +332,7 @@ fn contours<'py>(
     thresholds: Vec<f64>,
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
@@ -360,7 +361,7 @@ fn contours_arrow<'py>(
     thresholds: Vec<f64>,
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 

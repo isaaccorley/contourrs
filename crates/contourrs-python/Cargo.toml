@@ -12,5 +12,5 @@ crate-type = ["cdylib"]
 contourrs = { path = "../contourrs", features = ["arrow"] }
 arrow = { version = "54", default-features = false, features = ["ffi"] }
 geo-types = "0.7"
-pyo3 = { version = "0.23", features = ["extension-module"] }
-numpy = "0.23"
+pyo3 = { version = "0.28", features = ["extension-module"] }
+numpy = "0.28"
