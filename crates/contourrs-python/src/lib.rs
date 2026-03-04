@@ -3,6 +3,7 @@
 use arrow::array::{Array, StructArray};
 use arrow::ffi::to_ffi;
 use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
+use pyo3::conversion::IntoPyObject;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
@@ -218,7 +219,7 @@ fn polygons_to_geojson_list(
     let items: Vec<PyObject> = polygons
         .iter()
         .map(|(polygon, value)| {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             dict.set_item(type_key, polygon_str)?;
 
             let mut ring_objects: Vec<PyObject> = Vec::with_capacity(1 + polygon.interiors().len());
@@ -226,23 +227,29 @@ fn polygons_to_geojson_list(
             for hole in polygon.interiors() {
                 ring_objects.push(ring_to_py(py, hole)?);
             }
-            dict.set_item(coords_key, PyList::new_bound(py, &ring_objects))?;
+            dict.set_item(coords_key, PyList::new(py, &ring_objects)?)?;
 
-            let tuple = PyTuple::new_bound(py, &[dict.to_object(py), value.to_object(py)]);
-            Ok(tuple.to_object(py))
+            let tuple = PyTuple::new(
+                py,
+                &[
+                    dict.unbind().into_any(),
+                    value.into_pyobject(py)?.unbind().into_any(),
+                ],
+            )?;
+            Ok(tuple.unbind().into_any())
         })
         .collect::<PyResult<Vec<_>>>()?;
 
-    Ok(PyList::new_bound(py, items).into())
+    Ok(PyList::new(py, items)?.unbind().into_any())
 }
 
 fn ring_to_py(py: Python<'_>, ring: &geo_types::LineString<f64>) -> PyResult<PyObject> {
     let coord_objects: Vec<PyObject> = ring
         .0
         .iter()
-        .map(|c| PyTuple::new_bound(py, [c.x, c.y]).to_object(py))
-        .collect();
-    Ok(PyList::new_bound(py, coord_objects).into())
+        .map(|c| Ok(PyTuple::new(py, [c.x, c.y])?.unbind().into_any()))
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok(PyList::new(py, coord_objects)?.unbind().into_any())
 }
 
 // ---------------------------------------------------------------------------
@@ -293,23 +300,23 @@ fn polygons_to_arrow_table(
     let schema_ptr = Box::into_raw(Box::new(ffi_schema)) as usize;
 
     // Import into PyArrow
-    let pa = py.import_bound("pyarrow")?;
+    let pa = py.import("pyarrow")?;
     let rb_cls = pa.getattr("RecordBatch")?;
     let record_batch = rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr))?;
 
     // Wrap as Table with GeoParquet metadata (schema-level metadata lost in C Data Interface)
     let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
-    let meta = PyDict::new_bound(py);
+    let meta = PyDict::new(py);
     meta.set_item(pyo3::intern!(py, "geo"), geo_meta)?;
 
     let table_cls = pa.getattr("Table")?;
     let table = table_cls.call_method1(
         "from_batches",
-        (PyList::new_bound(py, [record_batch.to_object(py)]),),
+        (PyList::new(py, [record_batch.unbind().into_any()])?,),
     )?;
     let table = table.call_method1("replace_schema_metadata", (meta,))?;
 
-    Ok(table.to_object(py))
+    Ok(table.unbind())
 }
 
 // ---------------------------------------------------------------------------
