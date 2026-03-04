@@ -6,9 +6,9 @@ repos:
       - id: cargo-fmt
         args: ["--all", "--", "--check"]
       - id: cargo-clippy
-        args: ["--workspace", "--features", "contourrs-core/arrow", "--", "-D", "warnings"]
+        args: ["--workspace", "--features", "contourrs/arrow", "--", "-D", "warnings"]
       - id: cargo-check
-        args: ["--workspace", "--features", "contourrs-core/arrow"]
+        args: ["--workspace", "--features", "contourrs/arrow"]
       - id: cargo-test
         args: ["--workspace"]
 

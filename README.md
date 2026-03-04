@@ -156,7 +156,7 @@ Benchmarked against `rasterio.features.shapes` on random categorical rasters:
 3. Interpolation along cell edges places boundaries at sub-pixel precision.
 
 **Workspace layout:**
-- `contourrs-core` — pure Rust library, returns `geo_types::Polygon<f64>`
+- `contourrs` — pure Rust library, returns `geo_types::Polygon<f64>`
 - `contourrs-python` — PyO3/maturin bindings
 
 **Feature flags** (Rust crate):
