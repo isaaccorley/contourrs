@@ -42,6 +42,10 @@ Built for the **ML-to-GIS pipeline**: model inference output goes in, GeoJSON or
 - **Contours** — marching squares isobands with sub-pixel interpolation
 - **All dtypes** — uint8/16/32, int16/32, float32/64
 
+## Acknowledgments
+
+Built by [Isaac Corley](https://github.com/isaaccorley) with [Claude](https://claude.ai) as an AI pair-programmer. The Rust core, Python bindings, and packaging were developed iteratively with human-in-the-loop feedback and review.
+
 ## License
 
 Apache-2.0

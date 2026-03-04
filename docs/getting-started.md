@@ -14,7 +14,7 @@
     uv add contourrs
     ```
 
-Pre-built wheels are available for Linux, macOS, and Windows on Python 3.8+.
+Pre-built wheels are available for Linux, macOS, and Windows on Python 3.12+.
 
 ## Development setup
 
