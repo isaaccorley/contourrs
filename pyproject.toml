@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "contourrs"
-version = "0.2.0"
+version = "0.3.0"
 description = "Fast raster polygonization with Arrow export — pure Rust, zero GDAL"
 requires-python = ">=3.12"
 license = "Apache-2.0"
