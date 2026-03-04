@@ -3,7 +3,7 @@
 ## Workspace layout
 
 ```
-contourrs-core      Pure Rust library, returns geo_types::Polygon<f64>
+contourrs           Pure Rust library, returns geo_types::Polygon<f64>
 contourrs-python    PyO3/maturin Python bindings
 ```
 

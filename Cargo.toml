@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/contourrs-core", "crates/contourrs-python"]
+members = ["crates/contourrs", "crates/contourrs-python"]
 
 [workspace.package]
 version = "0.1.0"

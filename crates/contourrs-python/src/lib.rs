@@ -6,7 +6,7 @@ use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
-use contourrs_core::{AffineTransform, Connectivity, RasterGrid};
+use contourrs::{AffineTransform, Connectivity, RasterGrid};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -67,7 +67,7 @@ macro_rules! dispatch_geojson {
                 let (height, width) = (shape[0], shape[1]);
                 let polys = $py.allow_threads(|| {
                     let grid = RasterGrid::new(data, width, height);
-                    contourrs_core::polygonize(&grid, $mask_slice, $conn, $affine)
+                    contourrs::polygonize(&grid, $mask_slice, $conn, $affine)
                 });
                 polygons_to_geojson_list($py, &polys)
             })+
@@ -91,7 +91,7 @@ macro_rules! dispatch_arrow {
                 let (height, width) = (shape[0], shape[1]);
                 let polys = $py.allow_threads(|| {
                     let grid = RasterGrid::new(data, width, height);
-                    contourrs_core::polygonize(&grid, $mask_slice, $conn, $affine)
+                    contourrs::polygonize(&grid, $mask_slice, $conn, $affine)
                 });
                 polygons_to_arrow_table($py, &polys)
             })+
@@ -131,7 +131,7 @@ macro_rules! dispatch_contour_geojson {
                 let thresholds = $thresholds;
                 let polys = $py.allow_threads(|| {
                     let grid = RasterGrid::new(data, width, height);
-                    contourrs_core::contours(&grid, thresholds, $mask_slice, $affine)
+                    contourrs::contours(&grid, thresholds, $mask_slice, $affine)
                 });
                 polygons_to_geojson_list($py, &polys)
             })+
@@ -156,7 +156,7 @@ macro_rules! dispatch_contour_arrow {
                 let thresholds = $thresholds;
                 let polys = $py.allow_threads(|| {
                     let grid = RasterGrid::new(data, width, height);
-                    contourrs_core::contours(&grid, thresholds, $mask_slice, $affine)
+                    contourrs::contours(&grid, thresholds, $mask_slice, $affine)
                 });
                 polygons_to_arrow_table($py, &polys)
             })+
@@ -280,7 +280,7 @@ fn polygons_to_arrow_table(
     polygons: &[(geo_types::Polygon<f64>, f64)],
 ) -> PyResult<PyObject> {
     // Build RecordBatch in Rust
-    let batch = contourrs_core::arrow::polygons_to_record_batch(polygons)
+    let batch = contourrs::arrow::polygons_to_record_batch(polygons)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     // Export via Arrow C Data Interface
