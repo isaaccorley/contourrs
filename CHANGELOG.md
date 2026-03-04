@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/isaaccorley/contourrs/compare/v0.4.0...v0.4.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* include LICENSE in sdist for PyPI upload ([dd4be5d](https://github.com/isaaccorley/contourrs/commit/dd4be5dba5227295a00006e05fdcbfaf5f7f21d4))
+
 ## [0.4.0](https://github.com/isaaccorley/contourrs/compare/v0.3.0...v0.4.0) (2026-03-04)
 
 
