@@ -187,25 +187,25 @@ pub fn contours<T: RasterValue>(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-struct EdgeSegment {
-    start: Coord<f64>,
-    end: Coord<f64>,
+pub(crate) struct EdgeSegment {
+    pub(crate) start: Coord<f64>,
+    pub(crate) end: Coord<f64>,
 }
 
 // ---------------------------------------------------------------------------
 // Bounding box for spatial indexing
 // ---------------------------------------------------------------------------
 
-struct BBox {
-    min_x: f64,
-    max_x: f64,
-    min_y: f64,
-    max_y: f64,
+pub(crate) struct BBox {
+    pub(crate) min_x: f64,
+    pub(crate) max_x: f64,
+    pub(crate) min_y: f64,
+    pub(crate) max_y: f64,
 }
 
 impl BBox {
     #[inline]
-    fn from_ring(ring: &LineString<f64>) -> Self {
+    pub(crate) fn from_ring(ring: &LineString<f64>) -> Self {
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut min_y = f64::INFINITY;
@@ -233,7 +233,7 @@ impl BBox {
     }
 
     #[inline]
-    fn contains_point(&self, p: &Coord<f64>) -> bool {
+    pub(crate) fn contains_point(&self, p: &Coord<f64>) -> bool {
         p.x >= self.min_x && p.x <= self.max_x && p.y >= self.min_y && p.y <= self.max_y
     }
 }
@@ -244,7 +244,14 @@ impl BBox {
 
 /// Get pixel value, returning NaN for out-of-bounds or masked pixels.
 #[inline]
-fn grid_val(data: &[f64], w: usize, h: usize, col: i32, row: i32, mask: Option<&[bool]>) -> f64 {
+pub(crate) fn grid_val(
+    data: &[f64],
+    w: usize,
+    h: usize,
+    col: i32,
+    row: i32,
+    mask: Option<&[bool]>,
+) -> f64 {
     if col < 0 || row < 0 || col >= w as i32 || row >= h as i32 {
         return f64::NEG_INFINITY;
     }
@@ -259,7 +266,7 @@ fn grid_val(data: &[f64], w: usize, h: usize, col: i32, row: i32, mask: Option<&
 
 /// Process a single row of the marching-squares grid, returning segments.
 #[inline]
-fn march_row(
+pub(crate) fn march_row(
     data: &[f64],
     w: usize,
     h: usize,
@@ -478,7 +485,7 @@ fn march_isoline(
 
 /// Linear interpolation fraction.
 #[inline]
-fn interp(v0: f64, v1: f64, threshold: f64) -> f64 {
+pub(crate) fn interp(v0: f64, v1: f64, threshold: f64) -> f64 {
     if v0.is_infinite() || v1.is_infinite() {
         if v0.is_infinite() && v1.is_infinite() {
             return 0.5;
@@ -497,14 +504,14 @@ fn interp(v0: f64, v1: f64, threshold: f64) -> f64 {
 // Segment chaining: connect segments into closed rings
 // ---------------------------------------------------------------------------
 
-type PointKey = (i64, i64);
+pub(crate) type PointKey = (i64, i64);
 
 #[inline]
-fn quantize(c: &Coord<f64>) -> PointKey {
+pub(crate) fn quantize(c: &Coord<f64>) -> PointKey {
     ((c.x * 1e10).round() as i64, (c.y * 1e10).round() as i64)
 }
 
-fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
+pub(crate) fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
     if segments.is_empty() {
         return Vec::new();
     }
@@ -573,7 +580,10 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
 // ---------------------------------------------------------------------------
 
 #[inline]
-fn apply_transform(ring: &LineString<f64>, transform: &AffineTransform) -> LineString<f64> {
+pub(crate) fn apply_transform(
+    ring: &LineString<f64>,
+    transform: &AffineTransform,
+) -> LineString<f64> {
     LineString(
         ring.0
             .iter()

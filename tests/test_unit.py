@@ -225,3 +225,66 @@ def test_contours_arrow_geoparquet_metadata():
     table = contours_arrow(data, thresholds=[0.5, 1.0])
     meta = table.schema.metadata
     assert b"geo" in meta
+
+
+# ── block-based contours ───────────────────────────────────────────────
+
+
+def _geom_coords(result):
+    """Extract sorted (value, exterior_coord_count, hole_count) tuples."""
+    out = []
+    for geom, val in result:
+        n_ext = len(geom["coordinates"][0])
+        n_holes = len(geom["coordinates"]) - 1
+        out.append((val, n_ext, n_holes))
+    return sorted(out)
+
+
+def test_blocked_matches_flat():
+    data = np.full((4, 4), 0.75, dtype=np.float32)
+    thresholds = [0.5, 1.0]
+    expected = contours(data, thresholds)
+    blocked = contours(data, thresholds, block_size=2)
+    assert len(expected) == len(blocked)
+    assert _geom_coords(expected) == _geom_coords(blocked)
+
+
+def test_blocked_matches_gradient():
+    data = np.linspace(0, 1, 64).reshape(8, 8).astype(np.float32)
+    thresholds = [0.25, 0.5, 0.75]
+    expected = contours(data, thresholds)
+    blocked = contours(data, thresholds, block_size=4)
+    assert len(expected) == len(blocked)
+    exp_vals = sorted(v for _, v in expected)
+    blk_vals = sorted(v for _, v in blocked)
+    assert exp_vals == blk_vals
+
+
+def test_blocked_matches_gaussian():
+    y, x = np.mgrid[-3:3:64j, -3:3:64j]
+    dem = np.exp(-(x**2 + y**2)).astype(np.float32)
+    thresholds = [0.1, 0.3, 0.5, 0.7, 0.9]
+    expected = contours(dem, thresholds)
+    for bs in [4, 8, 16]:
+        blocked = contours(dem, thresholds, block_size=bs)
+        assert len(expected) == len(blocked), f"block_size={bs}"
+        exp_vals = sorted(v for _, v in expected)
+        blk_vals = sorted(v for _, v in blocked)
+        assert exp_vals == blk_vals, f"block_size={bs}"
+
+
+def test_blocked_arrow_matches():
+    data = np.linspace(0, 1, 64).reshape(8, 8).astype(np.float32)
+    thresholds = [0.25, 0.5, 0.75]
+    expected = contours_arrow(data, thresholds)
+    blocked = contours_arrow(data, thresholds, block_size=4)
+    assert expected.num_rows == blocked.num_rows
+
+
+def test_blocked_none_is_default():
+    """block_size=None should give identical results to no kwarg."""
+    data = np.linspace(0, 1, 64).reshape(8, 8).astype(np.float32)
+    thresholds = [0.25, 0.5, 0.75]
+    a = contours(data, thresholds)
+    b = contours(data, thresholds, block_size=None)
+    assert _geom_coords(a) == _geom_coords(b)

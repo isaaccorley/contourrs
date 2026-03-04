@@ -68,6 +68,7 @@ def contours(
     thresholds: list[float],
     mask: NDArray[np.bool_] | None = None,
     transform: tuple[float, ...] | None = None,
+    block_size: int | None = None,
 ) -> list[tuple[dict, float]]:
     """Generate filled contour (isoband) polygons from a continuous raster.
 
@@ -85,6 +86,11 @@ def contours(
         2D boolean array. True = include pixel, False = exclude.
     transform : tuple[float, ...], optional
         Affine transform as (a, b, c, d, e, f). Default is identity.
+    block_size : int, optional
+        Tile size for block-based parallel marching squares. When set,
+        the grid is split into ``block_size x block_size`` blocks and
+        processed in parallel with cross-block fragment merging.
+        ``None`` (default) uses the standard row-parallel path.
 
     Returns
     -------
@@ -98,6 +104,7 @@ def contours_arrow(
     thresholds: list[float],
     mask: NDArray[np.bool_] | None = None,
     transform: tuple[float, ...] | None = None,
+    block_size: int | None = None,
 ) -> pyarrow.Table:
     """Generate filled contour polygons as a PyArrow Table with WKB geometry.
 
@@ -115,6 +122,11 @@ def contours_arrow(
         2D boolean array. True = include pixel, False = exclude.
     transform : tuple[float, ...], optional
         Affine transform as (a, b, c, d, e, f). Default is identity.
+    block_size : int, optional
+        Tile size for block-based parallel marching squares. When set,
+        the grid is split into ``block_size x block_size`` blocks and
+        processed in parallel with cross-block fragment merging.
+        ``None`` (default) uses the standard row-parallel path.
 
     Returns
     -------

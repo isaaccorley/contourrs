@@ -7,6 +7,7 @@
 pub mod arrow;
 pub mod connectivity;
 pub mod contour;
+pub mod contour_blocked;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 pub mod geometry;
@@ -19,6 +20,7 @@ mod union_find;
 
 pub use connectivity::Connectivity;
 pub use contour::contours;
+pub use contour_blocked::contours_blocked;
 pub use raster::{RasterGrid, RasterValue};
 pub use transform::AffineTransform;
 

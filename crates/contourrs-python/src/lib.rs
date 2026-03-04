@@ -118,7 +118,7 @@ macro_rules! dtype_list {
 // ---------------------------------------------------------------------------
 
 macro_rules! dispatch_contour_geojson {
-    ($py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $dtype:expr,
+    ($py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $block_size:expr, $dtype:expr,
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
@@ -130,9 +130,13 @@ macro_rules! dispatch_contour_geojson {
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
+                let block_size = $block_size;
                 let polys = $py.detach(|| {
                     let grid = RasterGrid::new(data, width, height);
-                    contourrs::contours(&grid, thresholds, $mask_slice, $affine)
+                    match block_size {
+                        Some(bs) => contourrs::contours_blocked(&grid, thresholds, $mask_slice, $affine, bs),
+                        None => contourrs::contours(&grid, thresholds, $mask_slice, $affine),
+                    }
                 });
                 polygons_to_geojson_list($py, &polys)
             })+
@@ -143,7 +147,7 @@ macro_rules! dispatch_contour_geojson {
 }
 
 macro_rules! dispatch_contour_arrow {
-    ($py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $dtype:expr,
+    ($py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $block_size:expr, $dtype:expr,
      $($ty:ty => $name:expr),+ $(,)?) => {
         match $dtype {
             $( $name => {
@@ -155,9 +159,13 @@ macro_rules! dispatch_contour_arrow {
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
+                let block_size = $block_size;
                 let polys = $py.detach(|| {
                     let grid = RasterGrid::new(data, width, height);
-                    contourrs::contours(&grid, thresholds, $mask_slice, $affine)
+                    match block_size {
+                        Some(bs) => contourrs::contours_blocked(&grid, thresholds, $mask_slice, $affine, bs),
+                        None => contourrs::contours(&grid, thresholds, $mask_slice, $affine),
+                    }
                 });
                 polygons_to_arrow_table($py, &polys)
             })+
@@ -168,9 +176,9 @@ macro_rules! dispatch_contour_arrow {
 }
 
 macro_rules! contour_dtype_list {
-    ($mac:ident, $py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $dtype:expr) => {
+    ($mac:ident, $py:expr, $source:expr, $thresholds:expr, $mask_slice:expr, $affine:expr, $block_size:expr, $dtype:expr) => {
         $mac!(
-            $py, $source, $thresholds, $mask_slice, $affine, $dtype,
+            $py, $source, $thresholds, $mask_slice, $affine, $block_size, $dtype,
             u8 => "uint8", u16 => "uint16", u32 => "uint32",
             i16 => "int16", i32 => "int32",
             f32 => "float32", f64 => "float64",
@@ -325,13 +333,14 @@ fn polygons_to_arrow_table(
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (source, thresholds, mask=None, transform=None))]
+#[pyo3(signature = (source, thresholds, mask=None, transform=None, block_size=None))]
 fn contours<'py>(
     py: Python<'py>,
     source: &Bound<'py, pyo3::PyAny>,
     thresholds: Vec<f64>,
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
+    block_size: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
@@ -345,6 +354,7 @@ fn contours<'py>(
         &thresholds,
         mask_slice,
         affine,
+        block_size,
         dtype_str.as_str()
     )
 }
@@ -354,13 +364,14 @@ fn contours<'py>(
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (source, thresholds, mask=None, transform=None))]
+#[pyo3(signature = (source, thresholds, mask=None, transform=None, block_size=None))]
 fn contours_arrow<'py>(
     py: Python<'py>,
     source: &Bound<'py, pyo3::PyAny>,
     thresholds: Vec<f64>,
     mask: Option<&Bound<'py, pyo3::PyAny>>,
     transform: Option<(f64, f64, f64, f64, f64, f64)>,
+    block_size: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
@@ -374,6 +385,7 @@ fn contours_arrow<'py>(
         &thresholds,
         mask_slice,
         affine,
+        block_size,
         dtype_str.as_str()
     )
 }
