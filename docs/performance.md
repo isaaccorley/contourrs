@@ -1,8 +1,10 @@
 # Performance
 
-All benchmarks on Apple M-series, release build, median of 5 runs after 2 warmup.
+All benchmarks on Apple M-series, release build, median of 5 runs after 2 warmup. Reproduce with [`scripts/benchmark.py`](https://github.com/isaaccorley/contourrs/blob/main/scripts/benchmark.py).
 
 ## Polygonize — shapes_arrow vs rasterio
+
+`rasterio.features.shapes` is a thin wrapper around GDAL's `GDALPolygonize` C function — these benchmarks are a direct comparison to GDAL's implementation.
 
 5 categorical values, random raster.
 

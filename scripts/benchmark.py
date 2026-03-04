@@ -77,6 +77,32 @@ def fmt_ms(ms):
 # ---------------------------------------------------------------------------
 
 
+def _gdal_polygonize(data):
+    """Run GDALPolygonize via osgeo Python bindings into a memory OGR layer."""
+    from osgeo import gdal, ogr  # type: ignore[import-not-found]
+
+    h, w = data.shape
+    drv = gdal.GetDriverByName("MEM")
+    ds = drv.Create("", w, h, 1, gdal.GDT_Byte)
+    ds.GetRasterBand(1).WriteArray(data)
+
+    ogr_drv = ogr.GetDriverByName("Memory")
+    ogr_ds = ogr_drv.CreateDataSource("")
+    layer = ogr_ds.CreateLayer("polygons")
+    layer.CreateField(ogr.FieldDefn("value", ogr.OFTInteger))
+
+    gdal.Polygonize(ds.GetRasterBand(1), None, layer, 0)
+
+    # Force iteration to match rasterio behavior
+    features = []
+    layer.ResetReading()
+    feat = layer.GetNextFeature()
+    while feat is not None:
+        features.append((feat.GetGeometryRef().ExportToWkb(), feat.GetField(0)))
+        feat = layer.GetNextFeature()
+    return features
+
+
 def bench_polygonize():
     from contourrs import shapes, shapes_arrow
 
@@ -86,7 +112,15 @@ def bench_polygonize():
         has_rio = True
     except ImportError:
         has_rio = False
-        log("  (rasterio not installed — skipping comparison)\n")
+        log("  (rasterio not installed — skipping rasterio comparison)")
+
+    try:
+        from osgeo import gdal  # type: ignore[import-not-found]  # noqa: F401
+
+        has_gdal = True
+    except ImportError:
+        has_gdal = False
+        log("  (osgeo/GDAL not installed — skipping GDAL comparison)")
 
     log("=" * 80)
     log("POLYGONIZE BENCHMARK (discrete/categorical rasters)")
@@ -94,7 +128,10 @@ def bench_polygonize():
 
     parts = [f"{'Size':>10}", f"{'shapes()':>10}", f"{'arrow()':>10}"]
     if has_rio:
-        parts += [f"{'rasterio':>10}", f"{'Speedup':>8}", f"{'Arrow Spd':>9}"]
+        parts.append(f"{'rasterio':>10}")
+    if has_gdal:
+        parts.append(f"{'GDAL':>10}")
+    parts += [f"{'Speedup':>8}", f"{'Arrow Spd':>9}"]
     header = " | ".join(parts)
     log(header)
     log("-" * len(header))
@@ -110,13 +147,25 @@ def bench_polygonize():
 
         sz = f"{size:>5}x{size:<4}"
         s = f"{sz} | {fmt_ms(ms_shapes):>10} | {fmt_ms(ms_arrow):>10}"
+
+        # Use rasterio as the baseline for speedup calculation
+        ms_baseline = None
         if has_rio:
             ms_rio, _ = bench(
                 lambda d=data: list(rio_shapes(d, connectivity=4)),
             )
-            spd = ms_rio / ms_shapes if ms_shapes > 0 else float("inf")
-            aspd = ms_rio / ms_arrow if ms_arrow > 0 else float("inf")
-            s += f" | {fmt_ms(ms_rio):>10} | {spd:>7.1f}x | {aspd:>8.1f}x"
+            ms_baseline = ms_rio
+            s += f" | {fmt_ms(ms_rio):>10}"
+        if has_gdal:
+            ms_gdal, _ = bench(lambda d=data: _gdal_polygonize(d))
+            if ms_baseline is None:
+                ms_baseline = ms_gdal
+            s += f" | {fmt_ms(ms_gdal):>10}"
+
+        if ms_baseline is not None:
+            spd = ms_baseline / ms_shapes if ms_shapes > 0 else float("inf")
+            aspd = ms_baseline / ms_arrow if ms_arrow > 0 else float("inf")
+            s += f" | {spd:>7.1f}x | {aspd:>8.1f}x"
         log(s)
 
     log()

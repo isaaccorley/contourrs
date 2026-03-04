@@ -131,7 +131,7 @@ Same as `contours()` but returns a `pyarrow.Table` with WKB geometry and GeoParq
 
 ## Performance
 
-Benchmarked against `rasterio.features.shapes` on random categorical rasters:
+Benchmarked against `rasterio.features.shapes` (`GDALPolygonize` under the hood) on random categorical rasters ([benchmark script](scripts/benchmark.py)):
 
 | Grid size | Values | `shapes()` | `rasterio` | Speedup |
 |-----------|--------|------------|------------|---------|
@@ -162,6 +162,28 @@ Benchmarked against `rasterio.features.shapes` on random categorical rasters:
 **Feature flags** (Rust crate):
 - `arrow` — Arrow RecordBatch export with WKB geometry + GeoParquet metadata
 - `cuda` — GPU-accelerated connected-component labeling (scaffolded, requires CUDA toolkit)
+
+## Limitations vs GDAL
+
+contourrs reimplements GDAL's polygonize algorithm in pure Rust but is not a full replacement for the GDAL ecosystem. Key differences:
+
+| Feature | GDAL | contourrs |
+|---|---|---|
+| Large rasters | Scanline-based, disk-backed | Full array must fit in memory |
+| File I/O | Reads any GDAL/OGR raster/vector format | Array-in, GeoJSON/Arrow out |
+| CRS propagation | Automatic from source dataset | Manual — caller attaches CRS |
+| Nodata handling | Auto from band metadata / mask band | Explicit bool mask required |
+| Simplification | Ecosystem tools (`ogr2ogr`, PostGIS) | None — bring your own (e.g. `shapely.simplify`) |
+| Dtypes | int8–64, uint8–64, float, complex | u8/16/32, i16/32, f32/64 |
+| Progress reporting | Callback API | None |
+
+**When to use GDAL instead:** streaming very large rasters that exceed RAM, need direct format conversion (e.g. GeoTIFF → GeoPackage), or require CRS-aware output layers.
+
+**When contourrs wins:** in-memory ML/CV pipelines where speed matters, Arrow/GeoParquet-first workflows, environments where installing GDAL is painful, and isoband contouring (GDAL's `gdal_contour` produces isolines, not filled isobands).
+
+## Acknowledgments
+
+Built by [Isaac Corley](https://github.com/isaaccorley) with [Claude](https://claude.ai) as an AI pair-programmer. The Rust core, Python bindings, and packaging were developed iteratively with human-in-the-loop feedback and review.
 
 ## License
 
