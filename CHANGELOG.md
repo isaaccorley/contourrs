@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/isaaccorley/contourrs/compare/v0.2.0...v0.3.0) (2026-03-04)
+
+
+### Features
+
+* upgrade pyo3 0.22→0.23 for Python 3.14 support ([#3](https://github.com/isaaccorley/contourrs/issues/3)) ([5ca8fda](https://github.com/isaaccorley/contourrs/commit/5ca8fda224d82853dec3d2317f382023ddebbe8c))
+
 ## [0.2.0](https://github.com/isaaccorley/contourrs/compare/v0.1.0...v0.2.0) (2026-03-04)
 
 
