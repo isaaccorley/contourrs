@@ -59,11 +59,8 @@ jobs:
           # Linux aarch64
           - os: ubuntu-latest
             target: aarch64
-          # macOS x86_64
-          - os: macos-13
-            target: x86_64
           # macOS arm64
-          - os: macos-14
+          - os: macos-latest
             target: aarch64
           # Windows x86_64
           - os: windows-latest
@@ -79,7 +76,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist --interpreter 3.12 3.13
           manylinux: auto
 
       - uses: actions/upload-artifact@v4
