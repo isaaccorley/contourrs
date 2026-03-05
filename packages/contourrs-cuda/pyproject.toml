@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "contourrs-cuda"
+version = "0.4.0"
+description = "Fast raster polygonization with optional CUDA-enabled build"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["numpy", "pyarrow", "torch>=2.4"]
+
+[project.optional-dependencies]
+test = ["rasterio", "shapely", "pytest"]
+
+[tool.maturin]
+features = ["pyo3/extension-module", "contourrs-python/cuda"]
+manifest-path = "../../crates/contourrs-python/Cargo.toml"
+python-source = "../../python"
+module-name = "contourrs._contourrs"

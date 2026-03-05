@@ -41,8 +41,8 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  wheels:
-    name: Build wheels (${{ matrix.os }} ${{ matrix.target }})
+  wheels-cpu:
+    name: Build CPU wheels (${{ matrix.os }} ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -67,7 +67,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build wheels
+      - name: Build CPU wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -76,12 +76,33 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          name: wheels-cpu-${{ matrix.os }}-${{ matrix.target }}
           path: dist/*.whl
+
+  wheels-cuda:
+    name: Build CUDA wheels (linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build CUDA wheels
+        run: |
+          python -m pip install --upgrade pip maturin
+          maturin build --release --out dist --interpreter 3.12 3.13 3.14 --manylinux auto
+        working-directory: packages/contourrs-cuda
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-cuda-ubuntu-latest-x86_64
+          path: packages/contourrs-cuda/dist/*.whl
 
   publish:
     name: Publish to PyPI
-    needs: [sdist, wheels]
+    needs: [sdist, wheels-cpu, wheels-cuda]
     runs-on: ubuntu-latest
     environment: release
     permissions:

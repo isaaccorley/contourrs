@@ -8,13 +8,27 @@
     pip install contourrs
     ```
 
+=== "pip (CUDA extras)"
+
+    ```bash
+    pip install "contourrs[cuda]"
+    ```
+
+=== "pip (CUDA package)"
+
+    ```bash
+    pip install contourrs-cuda
+    ```
+
 === "uv"
 
     ```bash
     uv add contourrs
     ```
 
-Pre-built wheels are available for Linux, macOS, and Windows on Python 3.12+.
+Pre-built CPU wheels are available for Linux, macOS, and Windows on Python 3.12+.
+CUDA runtime dependencies are optional via the `cuda` extra.
+CUDA-enabled wheels are published separately under `contourrs-cuda`.
 
 ## Development setup
 
