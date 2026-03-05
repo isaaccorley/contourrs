@@ -143,3 +143,21 @@ table = shapes_arrow(
 )
 pq.write_table(table, "predictions.parquet")
 ```
+
+## Real-world data: tiled USDA CDL polygonization + merge
+
+Use the included script to fetch a real USDA Cropland Data Layer tile for a county,
+polygonize it in blocks, then merge touching polygons that share the same class.
+
+```bash
+python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 1024
+```
+
+The script (`examples/cdl_tiled_polygonize.py`) does four things:
+
+1. Calls `GetCDLFile` to resolve a public CDL GeoTIFF URL for the requested `year` + `fips`
+2. Downloads the raster (cached locally in `examples/data/`)
+3. Polygonizes each block with `shapes_arrow(...)` using the per-window affine transform
+4. Merges class-matching neighbors across tile seams via `GeoDataFrame.dissolve(...).explode(...)`
+
+Output is written as GeoParquet in `examples/output/` by default.

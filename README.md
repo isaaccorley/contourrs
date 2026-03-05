@@ -95,6 +95,17 @@ shapes(raster, mask=mask, connectivity=8, transform=transform)
 contours(dem, thresholds=[0.25, 0.5, 0.75], mask=mask, transform=transform)
 ```
 
+### Real-world tiled workflow (USDA CDL)
+
+Download a real Cropland Data Layer county tile, polygonize in blocks, and merge
+touching polygons with the same class across tile boundaries:
+
+```bash
+python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 1024
+```
+
+Writes merged output as GeoParquet in `examples/output/`.
+
 ## API
 
 ### `shapes(source, mask=None, connectivity=4, transform=None)`
