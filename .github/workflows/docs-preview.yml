@@ -1,0 +1,92 @@
+name: docs-preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: docs-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build docs
+        run: |
+          pip install zensical
+          zensical build --clean
+
+      - name: Upload docs preview artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-${{ github.event.pull_request.number }}-${{ github.sha }}
+          path: site
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Post preview link comment
+        if: github.event.pull_request.head.repo.fork == false
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const marker = '<!-- docs-preview-link -->';
+            const shortSha = context.sha.slice(0, 7);
+            const body = [
+              marker,
+              '## Docs preview',
+              '',
+              `Built from \`${shortSha}\`.`,
+              '',
+              `- [Workflow run](${process.env.RUN_URL})`,
+              `- [Download rendered docs artifact](${process.env.ARTIFACT_URL})`,
+              '',
+              'Unzip the artifact and open `site/index.html` to view the preview.',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.type === 'Bot' &&
+                typeof comment.body === 'string' &&
+                comment.body.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
