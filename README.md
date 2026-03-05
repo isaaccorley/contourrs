@@ -4,6 +4,12 @@ Fast raster polygonization and contouring in pure Rust with Python bindings. Dro
 
 Converts discrete/categorical rasters (segmentation masks, land cover, classified imagery) into vector polygons with their pixel values. Also supports continuous-field contouring (DEMs, probability maps, heatmaps) via marching squares isobands. Built for the ML-to-GIS pipeline: model inference output goes in, GeoJSON or GeoParquet comes out.
 
+## Example outputs
+
+![USDA CDL tiled polygonization](assets/cdl_polygonize.png)
+
+![Mount Rainier DEM elevation bins](assets/contours_mt_rainier.png)
+
 ## Install
 
 ```bash
