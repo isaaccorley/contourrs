@@ -6,7 +6,7 @@
 //!
 //! 1. Accept a raw GPU pointer (from PyTorch CUDA tensor or cudarc allocation)
 //! 2. Run connected-component labeling (CCL) kernel on GPU
-//! 3. Transfer only the label grid (u32) back to CPU — 4x smaller than f32 input
+//! 3. Transfer label grid + compact root-value table back to CPU
 //! 4. Run boundary tracing on CPU (inherently serial)
 //!
 //! This avoids the full GPU→CPU transfer of the source raster when the data
@@ -25,7 +25,7 @@ use geo_types::Polygon;
 ///
 /// # Arguments
 /// * `device` - CUDA device handle
-/// * `gpu_ptr` - Device pointer to the raster data (row-major, contiguous)
+/// * `gpu_ptr` - Device pointer to int32 raster data (row-major, contiguous)
 /// * `width` - Raster width in pixels
 /// * `height` - Raster height in pixels
 /// * `mask_gpu_ptr` - Optional device pointer to bool mask
@@ -39,22 +39,41 @@ pub fn polygonize_gpu(
     gpu_ptr: u64,
     width: usize,
     height: usize,
-    values_host: &[f64],
     mask_gpu_ptr: Option<u64>,
     connectivity: Connectivity,
     transform: AffineTransform,
-) -> Vec<(Polygon<f64>, f64)> {
+) -> Result<Vec<(Polygon<f64>, f64)>, String> {
     // Pass 1: GPU CCL — returns label grid on CPU
     let label_result =
-        kernel::gpu_label_regions(device, gpu_ptr, width, height, mask_gpu_ptr, connectivity);
+        kernel::gpu_label_regions(device, gpu_ptr, width, height, mask_gpu_ptr, connectivity)?;
+
+    let max_label = label_result
+        .labels
+        .iter()
+        .filter(|&&l| l != u32::MAX)
+        .max()
+        .copied()
+        .unwrap_or(0);
+
+    let mut values = vec![0.0f64; max_label as usize + 1];
+    for (label, value) in label_result
+        .root_labels
+        .iter()
+        .copied()
+        .zip(label_result.root_values.iter().copied())
+    {
+        if label != u32::MAX {
+            values[label as usize] = f64::from(value);
+        }
+    }
 
     // Pass 2: CPU boundary tracing (same as CPU path)
-    let mut polygons = trace::trace_polygons(&label_result.into(), values_host, &transform);
+    let mut polygons = trace::trace_polygons(&label_result.into(), &values, &transform);
 
     polygons = polygons
         .into_iter()
         .map(|(poly, val)| (polygon::normalize_polygon(poly), val))
         .collect();
 
-    polygons
+    Ok(polygons)
 }

@@ -10,6 +10,18 @@ Converts discrete/categorical rasters (segmentation masks, land cover, classifie
 pip install contourrs
 ```
 
+Optional CUDA/PyTorch runtime extras:
+
+```bash
+pip install "contourrs[cuda]"
+```
+
+Dedicated CUDA distribution (recommended for GPU production environments):
+
+```bash
+pip install contourrs-cuda
+```
+
 ## Development
 
 ```bash
@@ -162,6 +174,8 @@ Benchmarked against `rasterio.features.shapes` (`GDALPolygonize` under the hood)
 **Feature flags** (Rust crate):
 - `arrow` — Arrow RecordBatch export with WKB geometry + GeoParquet metadata
 - `cuda` — GPU-accelerated connected-component labeling (scaffolded, requires CUDA toolkit)
+
+Python packaging defaults to CPU-safe wheels. CUDA runtime deps are opt-in via the `cuda` extra.
 
 ## Limitations vs GDAL
 

@@ -439,6 +439,105 @@ fn contours_arrow<'py>(
 }
 
 // ---------------------------------------------------------------------------
+// shapes_cuda_raw() — CUDA tensor path (int32 labels on device)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+#[pyfunction(name = "shapes_cuda_raw")]
+#[pyo3(signature = (source, mask=None, connectivity=4, transform=None, device_ordinal=0))]
+fn shapes_cuda_raw<'py>(
+    py: Python<'py>,
+    source: &Bound<'py, pyo3::PyAny>,
+    mask: Option<&Bound<'py, pyo3::PyAny>>,
+    connectivity: u8,
+    transform: Option<(f64, f64, f64, f64, f64, f64)>,
+    device_ordinal: usize,
+) -> PyResult<Py<PyAny>> {
+    let (conn, affine) = parse_transform(Some(connectivity), transform)?;
+    let conn = conn.unwrap();
+
+    let is_cuda: bool = source.getattr("is_cuda")?.extract()?;
+    if !is_cuda {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "source must be a CUDA tensor",
+        ));
+    }
+    let is_contiguous: bool = source.call_method0("is_contiguous")?.extract()?;
+    if !is_contiguous {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "source must be contiguous",
+        ));
+    }
+
+    let dtype_str = source.getattr("dtype")?.str()?.to_str()?.to_string();
+    if dtype_str != "torch.int32" {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "source dtype must be torch.int32",
+        ));
+    }
+
+    let shape: Vec<usize> = source.getattr("shape")?.extract()?;
+    if shape.len() < 2 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "source must be at least 2D",
+        ));
+    }
+    let (height, width) = (shape[0], shape[1]);
+    let gpu_ptr: u64 = source.call_method0("data_ptr")?.extract()?;
+
+    let mask_gpu_ptr: Option<u64> = if let Some(mask_t) = mask {
+        let mask_is_cuda: bool = mask_t.getattr("is_cuda")?.extract()?;
+        if !mask_is_cuda {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "mask must be a CUDA tensor",
+            ));
+        }
+        let mask_contig: bool = mask_t.call_method0("is_contiguous")?.extract()?;
+        if !mask_contig {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "mask must be contiguous",
+            ));
+        }
+        let mask_dtype = mask_t.getattr("dtype")?.str()?.to_str()?.to_string();
+        if mask_dtype != "torch.bool" {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "mask dtype must be torch.bool",
+            ));
+        }
+
+        let mask_shape: Vec<usize> = mask_t.getattr("shape")?.extract()?;
+        if mask_shape.len() < 2 || mask_shape[0] != height || mask_shape[1] != width {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "mask shape {:?} does not match source shape {:?}",
+                mask_shape,
+                &shape[..2]
+            )));
+        }
+
+        Some(mask_t.call_method0("data_ptr")?.extract()?)
+    } else {
+        None
+    };
+
+    let polys = py.detach(|| {
+        let device = contourrs::cuda::CudaDevice::new(device_ordinal)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+        contourrs::cuda::polygonize_gpu(
+            &device,
+            gpu_ptr,
+            width,
+            height,
+            mask_gpu_ptr,
+            conn,
+            affine,
+        )
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)
+    })?;
+
+    polygons_to_geojson_list(py, &polys)
+}
+
+// ---------------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------------
 
@@ -448,5 +547,7 @@ fn _contourrs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(shapes_arrow, m)?)?;
     m.add_function(wrap_pyfunction!(contours, m)?)?;
     m.add_function(wrap_pyfunction!(contours_arrow, m)?)?;
+    #[cfg(feature = "cuda")]
+    m.add_function(wrap_pyfunction!(shapes_cuda_raw, m)?)?;
     Ok(())
 }

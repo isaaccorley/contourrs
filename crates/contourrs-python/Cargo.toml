@@ -8,8 +8,13 @@ license.workspace = true
 name = "_contourrs"
 crate-type = ["cdylib"]
 
+[features]
+default = ["arrow"]
+arrow = ["contourrs/arrow"]
+cuda = ["contourrs/cuda"]
+
 [dependencies]
-contourrs = { path = "../contourrs", features = ["arrow"] }
+contourrs = { path = "../contourrs", default-features = false }
 arrow = { version = "54", default-features = false, features = ["ffi"] }
 geo-types = "0.7"
 pyo3 = { version = "0.28", features = ["extension-module"] }

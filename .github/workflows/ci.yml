@@ -60,6 +60,9 @@ jobs:
       - name: Test core (arrow feature)
         run: cargo test -p contourrs --features arrow
 
+      - name: Check python crate with cuda feature
+        run: cargo check -p contourrs-python --features cuda
+
   python:
     name: Python tests (${{ matrix.os }}, ${{ matrix.python-version }})
     if: github.event_name != 'pull_request_target'

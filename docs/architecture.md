@@ -59,6 +59,11 @@ Two-isoline marching squares decomposition:
 | `arrow` | off (on in Python bindings) | Arrow RecordBatch export with WKB geometry + GeoParquet metadata |
 | `cuda` | off | GPU-accelerated connected-component labeling (scaffolded, not yet compiled) |
 
+Python packaging keeps CUDA optional:
+- `pip install contourrs` -> CPU-safe default install
+- `pip install "contourrs[cuda]"` -> adds CUDA/PyTorch runtime extras
+- `pip install contourrs-cuda` -> dedicated CUDA wheel distribution
+
 ## CUDA support (scaffolded)
 
 Pipeline: accept GPU pointer -> run CCL kernel on device -> transfer u32 label grid to CPU (4x smaller than f32 input) -> boundary tracing on CPU.
