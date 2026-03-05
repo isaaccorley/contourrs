@@ -290,3 +290,13 @@ def test_nan_thresholds_filtered():
     # Should produce same result as [0.5, 1.0]
     assert len(result) == 1
     assert result[0][1] == 0.5
+
+
+def test_shapes_non_contiguous_source_raises_value_error():
+    """Non-contiguous source arrays should raise ValueError, not panic."""
+    import pytest
+
+    data = np.arange(16, dtype=np.uint8).reshape(4, 4)[:, ::2]
+    assert not data.flags["C_CONTIGUOUS"]
+    with pytest.raises(ValueError, match="C-contiguous"):
+        shapes(data)

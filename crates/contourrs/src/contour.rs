@@ -251,7 +251,7 @@ fn grid_val(data: &[f64], w: usize, h: usize, col: i32, row: i32, mask: Option<&
     }
     let idx = row as usize * w + col as usize;
     if let Some(m) = mask {
-        if !m[idx] {
+        if m.get(idx).copied() != Some(true) {
             return f64::NAN;
         }
     }
@@ -1016,6 +1016,20 @@ mod tests {
             &grid,
             &[f64::NAN, f64::NAN],
             None,
+            AffineTransform::identity(),
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_short_mask_does_not_panic() {
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let short_mask: Vec<bool> = vec![];
+        let result = contours(
+            &grid,
+            &[3.0, 7.0],
+            Some(&short_mask),
             AffineTransform::identity(),
         );
         assert!(result.is_empty());

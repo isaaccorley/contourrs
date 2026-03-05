@@ -311,4 +311,18 @@ mod tests {
         assert_eq!(count_val1_4, 2); // Two separate val=1 regions
         assert!(count_val1_8 <= count_val1_4); // 8-conn merges or equals
     }
+
+    #[test]
+    fn test_short_mask_does_not_panic() {
+        let data = vec![1u8, 1, 1, 1];
+        let grid = RasterGrid::new(&data, 2, 2);
+        let short_mask: Vec<bool> = vec![];
+        let result = polygonize(
+            &grid,
+            Some(&short_mask),
+            Connectivity::Four,
+            AffineTransform::identity(),
+        );
+        assert!(result.is_empty());
+    }
 }

@@ -23,6 +23,9 @@ pub fn signed_area(ring: &LineString<f64>) -> f64 {
 pub fn point_in_ring(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
     let coords = &ring.0;
     let n = coords.len();
+    if n < 3 {
+        return false;
+    }
 
     // Bounding box pre-check
     if n > 0 {
@@ -133,5 +136,11 @@ mod tests {
             Coord { x: 0.0, y: 0.0 },
         ]);
         assert!(!point_in_ring(&Coord { x: 1.0, y: 3.0 }, &ring));
+    }
+
+    #[test]
+    fn test_point_in_empty_ring_is_false() {
+        let ring = LineString(vec![]);
+        assert!(!point_in_ring(&Coord { x: 0.0, y: 0.0 }, &ring));
     }
 }

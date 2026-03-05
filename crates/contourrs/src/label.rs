@@ -33,7 +33,7 @@ pub fn label_regions<T: RasterValue>(
 
             // Skip masked-out pixels
             if let Some(m) = mask {
-                if !m[idx] {
+                if m.get(idx).copied() != Some(true) {
                     labels[idx] = u32::MAX; // sentinel for masked
                     continue;
                 }

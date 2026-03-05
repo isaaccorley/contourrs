@@ -85,7 +85,9 @@ macro_rules! dispatch_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let polys = $py.detach(|| {
@@ -109,7 +111,9 @@ macro_rules! dispatch_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let polys = $py.detach(|| {
@@ -148,7 +152,9 @@ macro_rules! dispatch_contour_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
@@ -173,7 +179,9 @@ macro_rules! dispatch_contour_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
