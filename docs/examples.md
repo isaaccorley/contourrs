@@ -161,3 +161,27 @@ The script (`examples/cdl_tiled_polygonize.py`) does four things:
 4. Merges class-matching neighbors across tile seams via `GeoDataFrame.dissolve(...).explode(...)`
 
 Output is written as GeoParquet in `examples/output/` by default.
+
+The script also writes a side-by-side raster vs merged polygon visualization:
+
+![USDA CDL tiled polygonization](assets/cdl_polygonize.png)
+
+## Real-world + synthetic DEM contour plots
+
+Use the DEM example script to generate both:
+
+1. A synthetic DEM contour plot (fast, deterministic)
+2. A real Mount Rainier contour plot from a cached USGS 3DEP tile
+
+```bash
+python examples/dem_contour.py
+```
+
+Outputs:
+
+- `assets/contours_synthetic.png`
+- `assets/contours_mt_rainier.png`
+
+Example output (real DEM):
+
+![Mount Rainier DEM isobands](assets/contours_mt_rainier.png)

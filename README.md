@@ -106,6 +106,24 @@ python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 102
 
 Writes merged output as GeoParquet in `examples/output/`.
 
+![USDA CDL: tiled raster vs merged polygons](assets/cdl_polygonize.png)
+
+### DEM contour examples (synthetic + real)
+
+Generate contour visualizations from both a synthetic surface and a cached
+Mount Rainier DEM tile:
+
+```bash
+python examples/dem_contour.py
+```
+
+This writes two plots into `assets/` and `docs/assets/`:
+
+- `contours_synthetic.png`
+- `contours_mt_rainier.png`
+
+![Mount Rainier DEM to isobands](assets/contours_mt_rainier.png)
+
 ## API
 
 ### `shapes(source, mask=None, connectivity=4, transform=None)`
