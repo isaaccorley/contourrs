@@ -158,7 +158,7 @@ The script (`examples/cdl_tiled_polygonize.py`) does four things:
 1. Calls `GetCDLFile` to resolve a public CDL GeoTIFF URL for the requested `year` + `fips`
 2. Downloads the raster (cached locally in `examples/data/`)
 3. Polygonizes each block with `shapes_arrow(...)` using the per-window affine transform
-4. Merges class-matching neighbors across tile seams via Shapely `union_all(...)` + `get_parts(...)`
+4. Merges class-matching neighbors across tile seams via `GeoDataFrame.dissolve(...).explode(...)`
 
 Output is written as GeoParquet in `examples/output/` by default.
 
