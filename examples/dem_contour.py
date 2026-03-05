@@ -11,6 +11,7 @@ import matplotlib.figure
 import numpy as np
 import rasterio
 from contourrs import contours_arrow
+from matplotlib.colors import BoundaryNorm
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -52,47 +53,24 @@ def make_synthetic_dem(size: int = 256) -> np.ndarray:
 def choose_histogram_thresholds(
     data: np.ndarray,
     *,
-    band_count: int = 8,
-    sample_size: int = 200_000,
-    seed: int = 42,
+    band_count: int = 12,
+    histogram_bins: int = 512,
 ) -> list[float]:
-    """Choose thresholds from histogram peaks via 1D k-means clustering."""
+    """Choose thresholds from histogram density via CDF quantiles."""
     finite = data[np.isfinite(data)].astype(np.float64)
     if finite.size == 0:
         msg = "DEM has no finite values"
         raise ValueError(msg)
 
-    if finite.size > sample_size:
-        rng = np.random.default_rng(seed)
-        sample = rng.choice(finite, size=sample_size, replace=False)
-    else:
-        sample = finite
+    sample_bin_count = finite.size // 32 if finite.size > 0 else 32
+    bin_count = max(32, min(histogram_bins, sample_bin_count))
+    counts, edges = np.histogram(finite, bins=bin_count)
+    cdf = counts.cumsum().astype(np.float64)
+    cdf /= cdf[-1]
 
-    k = min(max(2, band_count), sample.size)
-    centroids = np.quantile(sample, np.linspace(0.0, 1.0, k))
-
-    for _ in range(30):
-        distances = np.abs(sample[:, None] - centroids[None, :])
-        labels = np.argmin(distances, axis=1)
-        updated = np.array(
-            [
-                sample[labels == i].mean() if np.any(labels == i) else centroids[i]
-                for i in range(k)
-            ]
-        )
-        if np.allclose(updated, centroids, atol=1e-3):
-            break
-        centroids = updated
-
-    centroids = np.sort(centroids)
-    thresholds = [float(finite.min())]
-    thresholds.extend(
-        float((centroids[i] + centroids[i + 1]) / 2.0)
-        for i in range(len(centroids) - 1)
-    )
-    thresholds.append(float(finite.max()))
-
-    thresholds = sorted(set(thresholds))
+    quantiles = np.linspace(0.0, 1.0, max(2, band_count) + 1)
+    thresholds = np.interp(quantiles, np.concatenate(([0.0], cdf)), edges)
+    thresholds = sorted({float(value) for value in thresholds})
     if len(thresholds) < 2:
         thresholds = [float(finite.min()), float(finite.max())]
     return thresholds
@@ -141,7 +119,7 @@ def plot_real_dem(
     dem_path: Path,
     thresholds: list[float] | None = None,
     *,
-    band_count: int = 8,
+    band_count: int = 12,
     save_name: str = "contours_mt_rainier.png",
 ) -> None:
     with rasterio.open(dem_path) as src:
@@ -178,6 +156,13 @@ def plot_real_dem(
         )
     )
 
+    band_count = len(threshold_values) - 1
+    cmap = plt.get_cmap("terrain", band_count)
+    norm = BoundaryNorm(threshold_values, cmap.N, clip=True)
+    gdf = gdf.copy()
+    band_index = np.searchsorted(threshold_values, gdf["value"], side="right") - 1
+    gdf["band"] = np.clip(band_index, 0, band_count - 1).astype(np.int32)
+
     h, w = data.shape
     print(
         f"Real DEM: {w}x{h}, range {np.nanmin(data):.0f}-{np.nanmax(data):.0f} m, "
@@ -198,20 +183,17 @@ def plot_real_dem(
     axes[0].set_ylim(bounds.bottom, bounds.top)
     axes[0].set_aspect("equal")
 
-    gdf.plot(
-        ax=axes[1],
-        column="value",
-        cmap="terrain",
-        edgecolor="black",
-        linewidth=0.15,
-        legend=True,
-        legend_kwds={"label": "Elevation (m)", "shrink": 0.8},
-    )
+    gdf.plot(ax=axes[1], column="band", cmap=cmap, edgecolor="black", linewidth=0.1)
     axes[1].set_title(f"Isoband contours ({len(gdf)} polygons)")
     axes[1].set_axis_off()
     axes[1].set_xlim(bounds.left, bounds.right)
     axes[1].set_ylim(bounds.bottom, bounds.top)
     axes[1].set_aspect("equal")
+
+    scalar = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    scalar.set_array([])
+    colorbar = fig.colorbar(scalar, ax=axes[1], shrink=0.8)
+    colorbar.set_label("Elevation (m)")
 
     plt.tight_layout()
     _save_figure(fig, save_name, dpi=200)
@@ -239,8 +221,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--bands",
         type=int,
-        default=8,
-        help="Number of real-DEM contour bands for auto threshold selection",
+        default=12,
+        help="Number of real-DEM contour bands (histogram-adaptive thresholds)",
     )
     p.add_argument(
         "--real-thresholds",
