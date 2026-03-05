@@ -305,28 +305,25 @@ fn polygons_to_arrow_table(
     let rb_cls = pa.getattr("RecordBatch")?;
     let record_batch = rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr))?;
 
-    // Build schema with GeoArrow field-level extension metadata + GeoParquet schema metadata.
-    // Field metadata may be lost through the C Data Interface, so we reconstruct it here.
-    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
-
-    let field_fn = pa.getattr("field")?;
-    let schema_fn = pa.getattr("schema")?;
-    let binary_ty = pa.call_method0("binary")?;
-    let float64_ty = pa.call_method0("float64")?;
+    // Layer GeoArrow field metadata + GeoParquet schema metadata onto the
+    // imported schema. Field metadata may be lost through the C Data Interface.
+    let imported_schema = record_batch.getattr("schema")?;
 
     // GeoArrow extension type metadata on geometry field
     let geo_field_meta = PyDict::new(py);
     geo_field_meta.set_item("ARROW:extension:name", "geoarrow.wkb")?;
     geo_field_meta.set_item("ARROW:extension:metadata", "{}")?;
 
-    let geo_field = field_fn.call1(("geometry", &binary_ty, false))?;
+    let geo_field = imported_schema.call_method1("field", ("geometry",))?;
     let geo_field = geo_field.call_method1("with_metadata", (geo_field_meta,))?;
-    let val_field = field_fn.call1(("value", &float64_ty, false))?;
+    let val_field = imported_schema.call_method1("field", ("value",))?;
 
-    // Schema-level GeoParquet metadata for compatibility
+    // GeoParquet schema-level metadata for compatibility
+    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
     let schema_meta = PyDict::new(py);
-    schema_meta.set_item(pyo3::intern!(py, "geo"), geo_meta)?;
+    schema_meta.set_item("geo", geo_meta)?;
 
+    let schema_fn = pa.getattr("schema")?;
     let schema = schema_fn.call1((PyList::new(
         py,
         [geo_field.unbind().into_any(), val_field.unbind().into_any()],

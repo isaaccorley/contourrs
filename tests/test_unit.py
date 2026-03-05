@@ -244,3 +244,15 @@ def test_shapes_arrow_geoarrow_field_metadata():
     geo_field = table.schema.field("geometry")
     assert geo_field.metadata is not None
     assert geo_field.metadata[b"ARROW:extension:name"] == b"geoarrow.wkb"
+
+
+def test_empty_arrow_table_metadata():
+    """Empty result should still produce valid table with correct schema."""
+    data = np.zeros((4, 4), dtype=np.float32)
+    table = contours_arrow(data, thresholds=[0.5, 1.0])
+    assert table.num_rows == 0
+    assert table.schema.field("geometry").type == pa.binary()
+    assert table.schema.field("value").type == pa.float64()
+    assert b"geo" in table.schema.metadata
+    geo_field = table.schema.field("geometry")
+    assert geo_field.metadata[b"ARROW:extension:name"] == b"geoarrow.wkb"
