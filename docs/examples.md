@@ -143,3 +143,45 @@ table = shapes_arrow(
 )
 pq.write_table(table, "predictions.parquet")
 ```
+
+## Real-world data: tiled USDA CDL polygonization + merge
+
+Use the included script to fetch a real USDA Cropland Data Layer tile for a county,
+polygonize it in blocks, then merge touching polygons that share the same class.
+
+```bash
+python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 1024
+```
+
+The script (`examples/cdl_tiled_polygonize.py`) does four things:
+
+1. Calls `GetCDLFile` to resolve a public CDL GeoTIFF URL for the requested `year` + `fips`
+2. Downloads the raster (cached locally in `examples/data/`)
+3. Polygonizes each block with `shapes_arrow(...)` using the per-window affine transform
+4. Merges class-matching neighbors across tile seams via `GeoDataFrame.dissolve(...).explode(...)`
+
+Output is written as GeoParquet in `examples/output/` by default.
+
+The script also writes a side-by-side raster vs merged polygon visualization:
+
+![USDA CDL tiled polygonization](assets/cdl_polygonize.png)
+
+## Real-world + synthetic DEM contour plots
+
+Use the DEM example script to generate both:
+
+1. A synthetic DEM contour plot (fast, deterministic)
+2. A real Mount Rainier contour plot from a cached USGS 3DEP tile
+
+```bash
+python examples/dem_contour.py
+```
+
+Outputs:
+
+- `assets/contours_synthetic.png`
+- `assets/contours_mt_rainier.png`
+
+Example output (real DEM):
+
+![Mount Rainier DEM isobands](assets/contours_mt_rainier.png)
