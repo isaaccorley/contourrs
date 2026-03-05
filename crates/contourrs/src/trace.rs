@@ -313,7 +313,7 @@ fn build_polygons(
                 .collect();
 
             // Assign holes to exteriors via point-in-ring with bbox pre-filter.
-            // Holes are cloned since they could theoretically match multiple exteriors.
+            // Holes are moved out of `rings`, and each hole is assigned to at most one exterior.
             let mut ext_holes: Vec<Vec<LineString<f64>>> = vec![Vec::new(); exterior_idxs.len()];
             for &hole_idx in &hole_idxs {
                 let hp = &rings[hole_idx].1 .0[0];

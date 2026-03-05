@@ -90,11 +90,12 @@ pub fn polygons_to_record_batch(
 
     for (polygon, value) in polygons {
         polygon_to_wkb_into(&mut wkb_data, polygon);
-        debug_assert!(
-            wkb_data.len() <= i32::MAX as usize,
-            "WKB buffer exceeds i32::MAX ({} bytes)",
-            wkb_data.len()
-        );
+        if wkb_data.len() > i32::MAX as usize {
+            return Err(arrow::error::ArrowError::ComputeError(format!(
+                "WKB buffer exceeds i32::MAX ({} bytes)",
+                wkb_data.len()
+            )));
+        }
         offsets.push(wkb_data.len() as i32);
         values.push(*value);
     }

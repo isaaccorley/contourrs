@@ -25,11 +25,18 @@ macro_rules! extract_mask {
             let src_shape: Vec<usize> = $source
                 .getattr("shape")
                 .and_then(|s| s.extract())
-                .unwrap_or_default();
+                .map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err(
+                        "source must have a 2D 'shape' attribute",
+                    )
+                })?;
+            if src_shape.len() < 2 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "source must be at least 2D",
+                ));
+            }
             let mask_shape = mask_ro.shape();
-            if src_shape.len() >= 2
-                && (mask_shape[0] != src_shape[0] || mask_shape[1] != src_shape[1])
-            {
+            if mask_shape[0] != src_shape[0] || mask_shape[1] != src_shape[1] {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "mask shape {:?} does not match source shape {:?}",
                     mask_shape,
