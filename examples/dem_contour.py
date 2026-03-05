@@ -10,7 +10,7 @@ import matplotlib
 import matplotlib.figure
 import numpy as np
 import rasterio
-from contourrs import contours_arrow
+from contourrs import contours_arrow, shapes_arrow
 from matplotlib.colors import BoundaryNorm
 
 matplotlib.use("Agg")
@@ -53,7 +53,7 @@ def make_synthetic_dem(size: int = 256) -> np.ndarray:
 def choose_histogram_thresholds(
     data: np.ndarray,
     *,
-    band_count: int = 12,
+    band_count: int = 8,
     histogram_bins: int = 512,
 ) -> list[float]:
     """Choose thresholds from histogram density via CDF quantiles."""
@@ -119,7 +119,7 @@ def plot_real_dem(
     dem_path: Path,
     thresholds: list[float] | None = None,
     *,
-    band_count: int = 12,
+    band_count: int = 8,
     save_name: str = "contours_mt_rainier.png",
 ) -> None:
     with rasterio.open(dem_path) as src:
@@ -147,11 +147,14 @@ def plot_real_dem(
         + ", ".join(f"{value:.0f}" for value in threshold_values)
     )
 
+    # For real-world DEMs, explicit bin polygonization (quantized raster + shapes)
+    # produces cleaner category maps than direct isoband extraction.
+    bin_index = np.digitize(data, threshold_values[1:-1], right=False).astype(np.int32)
     gdf = gpd.GeoDataFrame.from_arrow(
-        contours_arrow(
-            data,
-            thresholds=threshold_values,
+        shapes_arrow(
+            bin_index,
             mask=mask,
+            connectivity=4,
             transform=transform,
         )
     )
@@ -160,13 +163,13 @@ def plot_real_dem(
     cmap = plt.get_cmap("terrain", band_count)
     norm = BoundaryNorm(threshold_values, cmap.N, clip=True)
     gdf = gdf.copy()
-    band_index = np.searchsorted(threshold_values, gdf["value"], side="right") - 1
-    gdf["band"] = np.clip(band_index, 0, band_count - 1).astype(np.int32)
+    gdf["band"] = gdf["value"].astype(np.int32)
+    gdf["band"] = np.clip(gdf["band"], 0, band_count - 1)
 
     h, w = data.shape
     print(
         f"Real DEM: {w}x{h}, range {np.nanmin(data):.0f}-{np.nanmax(data):.0f} m, "
-        f"{len(gdf)} contour polygons"
+        f"{len(gdf)} binned polygons"
     )
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -183,8 +186,8 @@ def plot_real_dem(
     axes[0].set_ylim(bounds.bottom, bounds.top)
     axes[0].set_aspect("equal")
 
-    gdf.plot(ax=axes[1], column="band", cmap=cmap, edgecolor="black", linewidth=0.1)
-    axes[1].set_title(f"Isoband contours ({len(gdf)} polygons)")
+    gdf.plot(ax=axes[1], column="band", cmap=cmap, edgecolor="black", linewidth=0.05)
+    axes[1].set_title(f"Elevation bins ({len(gdf)} polygons)")
     axes[1].set_axis_off()
     axes[1].set_xlim(bounds.left, bounds.right)
     axes[1].set_ylim(bounds.bottom, bounds.top)
@@ -221,7 +224,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--bands",
         type=int,
-        default=12,
+        default=8,
         help="Number of real-DEM contour bands (histogram-adaptive thresholds)",
     )
     p.add_argument(
