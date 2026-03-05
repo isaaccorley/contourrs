@@ -225,3 +225,22 @@ def test_contours_arrow_geoparquet_metadata():
     table = contours_arrow(data, thresholds=[0.5, 1.0])
     meta = table.schema.metadata
     assert b"geo" in meta
+
+
+def test_arrow_geoarrow_field_metadata():
+    """Geometry field should have GeoArrow extension type metadata."""
+    data = np.full((4, 4), 0.75, dtype=np.float32)
+    table = contours_arrow(data, thresholds=[0.5, 1.0])
+    geo_field = table.schema.field("geometry")
+    assert geo_field.metadata is not None
+    assert geo_field.metadata[b"ARROW:extension:name"] == b"geoarrow.wkb"
+    assert geo_field.metadata[b"ARROW:extension:metadata"] == b"{}"
+
+
+def test_shapes_arrow_geoarrow_field_metadata():
+    """Shapes arrow should also have GeoArrow extension type metadata."""
+    data = np.ones((4, 4), dtype=np.uint8)
+    table = shapes_arrow(data)
+    geo_field = table.schema.field("geometry")
+    assert geo_field.metadata is not None
+    assert geo_field.metadata[b"ARROW:extension:name"] == b"geoarrow.wkb"
