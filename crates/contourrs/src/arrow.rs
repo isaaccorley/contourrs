@@ -3,19 +3,30 @@
 //! Gated behind the `arrow` feature flag.
 
 use arrow::array::{ArrayRef, BinaryArray, Float64Array, RecordBatch};
+use arrow::buffer::{Buffer, OffsetBuffer, ScalarBuffer};
 use arrow::datatypes::{DataType, Field, Schema};
 use geo_types::Polygon;
 use std::sync::Arc;
 
 /// Encode a geo_types::Polygon as ISO WKB (little-endian).
 pub fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
+    let mut buf = Vec::new();
+    polygon_to_wkb_into(&mut buf, polygon);
+    buf
+}
+
+/// Append a polygon's WKB encoding to an existing buffer.
+///
+/// Used for streaming WKB into a single contiguous buffer when building
+/// Arrow arrays, avoiding per-polygon `Vec<u8>` allocations.
+pub fn polygon_to_wkb_into(buf: &mut Vec<u8>, polygon: &Polygon<f64>) {
     let exterior = polygon.exterior();
     let interiors = polygon.interiors();
     let num_rings = 1 + interiors.len();
 
-    // Estimate capacity: header(9) + num_rings(4) + rings
+    // Reserve capacity for this polygon's WKB
     let total_points: usize = exterior.0.len() + interiors.iter().map(|r| r.0.len()).sum::<usize>();
-    let mut buf = Vec::with_capacity(9 + 4 + num_rings * 4 + total_points * 16);
+    buf.reserve(9 + 4 + num_rings * 4 + total_points * 16);
 
     // Byte order: 1 = little-endian
     buf.push(1u8);
@@ -25,14 +36,12 @@ pub fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
     buf.extend_from_slice(&(num_rings as u32).to_le_bytes());
 
     // Exterior ring
-    write_ring(&mut buf, &exterior.0);
+    write_ring(buf, &exterior.0);
 
     // Interior rings (holes)
     for hole in interiors {
-        write_ring(&mut buf, &hole.0);
+        write_ring(buf, &hole.0);
     }
-
-    buf
 }
 
 #[inline]
@@ -59,29 +68,37 @@ fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
 /// Build an Arrow RecordBatch from polygonize results.
 ///
 /// Columns:
-/// - `geometry`: Binary (WKB-encoded polygons)
+/// - `geometry`: Binary (WKB-encoded polygons, GeoArrow `geoarrow.wkb` extension type)
 /// - `value`: Float64
 ///
-/// Includes GeoParquet-compatible schema metadata.
+/// Streams all WKB into a single contiguous buffer (one allocation) instead
+/// of N separate `Vec<u8>` per polygon.
 pub fn polygons_to_record_batch(
     polygons: &[(Polygon<f64>, f64)],
 ) -> Result<RecordBatch, arrow::error::ArrowError> {
-    // Encode all polygons to WKB
-    let wkb_buffers: Vec<Vec<u8>> = polygons.iter().map(|(p, _)| polygon_to_wkb(p)).collect();
+    // Stream all WKB into a single buffer with offset tracking
+    let mut wkb_data: Vec<u8> = Vec::new();
+    let mut offsets: Vec<i32> = Vec::with_capacity(polygons.len() + 1);
+    offsets.push(0);
 
-    let wkb_refs: Vec<&[u8]> = wkb_buffers.iter().map(|b| b.as_slice()).collect();
-    let geometry_array = BinaryArray::from_vec(wkb_refs);
+    let mut values: Vec<f64> = Vec::with_capacity(polygons.len());
 
-    // Values
-    let values: Vec<f64> = polygons.iter().map(|(_, v)| *v).collect();
+    for (polygon, value) in polygons {
+        polygon_to_wkb_into(&mut wkb_data, polygon);
+        offsets.push(wkb_data.len() as i32);
+        values.push(*value);
+    }
+
+    // Build BinaryArray from raw buffers (zero-copy from our single allocation)
+    let offset_buffer = OffsetBuffer::new(ScalarBuffer::from(offsets));
+    let data_buffer = Buffer::from(wkb_data);
+    let geometry_array = BinaryArray::new(offset_buffer, data_buffer, None);
+
     let value_array = Float64Array::from(values);
 
-    // Schema with GeoParquet metadata
-    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
-
-    // GeoArrow extension type on geometry field (for GeoPandas from_arrow)
+    // GeoArrow extension type on geometry field
     let geometry_field = Field::new("geometry", DataType::Binary, false).with_metadata(
-        vec![
+        [
             (
                 "ARROW:extension:name".to_string(),
                 "geoarrow.wkb".to_string(),
@@ -92,12 +109,15 @@ pub fn polygons_to_record_batch(
         .collect(),
     );
 
+    // GeoParquet schema-level metadata for compatibility
+    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
+
     let schema = Schema::new(vec![
         geometry_field,
         Field::new("value", DataType::Float64, false),
     ])
     .with_metadata(
-        vec![("geo".to_string(), geo_meta.to_string())]
+        [("geo".to_string(), geo_meta.to_string())]
             .into_iter()
             .collect(),
     );
@@ -156,5 +176,39 @@ mod tests {
         let schema = batch.schema();
         let meta = schema.metadata();
         assert!(meta.contains_key("geo"));
+
+        // Check GeoArrow field metadata
+        let geo_field = schema.field(0);
+        let field_meta = geo_field.metadata();
+        assert_eq!(
+            field_meta.get("ARROW:extension:name").unwrap(),
+            "geoarrow.wkb"
+        );
+    }
+
+    #[test]
+    fn test_streaming_wkb_matches_standalone() {
+        let ext = LineString(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 1.0, y: 0.0 },
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]);
+        let hole = LineString(vec![
+            Coord { x: 0.2, y: 0.2 },
+            Coord { x: 0.8, y: 0.2 },
+            Coord { x: 0.5, y: 0.8 },
+            Coord { x: 0.2, y: 0.2 },
+        ]);
+        let polygon = Polygon::new(ext, vec![hole]);
+
+        // Standalone
+        let standalone = polygon_to_wkb(&polygon);
+
+        // Streaming into existing buffer
+        let mut buf = vec![0xDE, 0xAD]; // pre-existing data
+        polygon_to_wkb_into(&mut buf, &polygon);
+
+        assert_eq!(&buf[2..], &standalone[..]);
     }
 }
