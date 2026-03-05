@@ -81,4 +81,18 @@ mod tests {
             assert_eq!(uf.find(i), root);
         }
     }
+
+    #[test]
+    fn test_union_rank_less_branch() {
+        // Create two sets of different rank, then union small into large
+        let mut uf = UnionFind::new(4);
+        // union(0,1) → rank[0]=1 (equal case)
+        uf.union(0, 1);
+        // Now rank[root_of_01] = 1, rank[2] = 0
+        // union(2, 0) should hit Ordering::Less: rank[2] < rank[root_of_01]
+        let root = uf.union(2, 0);
+        assert_eq!(uf.find(2), root);
+        assert_eq!(uf.find(0), root);
+        assert_eq!(uf.find(1), root);
+    }
 }

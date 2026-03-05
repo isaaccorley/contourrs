@@ -199,4 +199,46 @@ mod tests {
         assert_eq!(result.labels[3], l1);
         assert_ne!(result.labels[1], l1);
     }
+
+    #[test]
+    fn test_u_shaped_merge_west_and_north() {
+        // Forces the west+north merge path (merged_label is Some when north checked)
+        // 1 1 1
+        // 1 2 1
+        // 1 1 1
+        // When processing (2,2)=1: west=(1,2)=2 no match; north=(2,1)=1 match → first merge
+        // When processing (1,2)=1: west=(0,2)=1 → first merge; north=(1,1)=2 no match
+        // But we need BOTH west AND north to match to exercise line 51
+        // This happens when a U-shaped region reconnects:
+        // 1 2 1
+        // 1 1 1
+        let data = vec![1u8, 2, 1, 1, 1, 1];
+        let grid = RasterGrid::new(&data, 3, 2);
+        let result = label_regions(&grid, None, Connectivity::Four);
+        // All 1s should be unified
+        let l1 = result.labels[0];
+        assert_eq!(result.labels[2], l1);
+        assert_eq!(result.labels[3], l1);
+        assert_eq!(result.labels[4], l1);
+        assert_eq!(result.labels[5], l1);
+        // The 2 should be different
+        assert_ne!(result.labels[1], l1);
+    }
+
+    #[test]
+    fn test_8conn_all_diagonals() {
+        // Forces all diagonal neighbor checks (NW and NE)
+        // 1 2 1
+        // 2 1 2
+        // 1 2 1
+        let data = vec![1u8, 2, 1, 2, 1, 2, 1, 2, 1];
+        let grid = RasterGrid::new(&data, 3, 3);
+        let result = label_regions(&grid, None, Connectivity::Eight);
+        // 8-connectivity: all 1s connected diagonally
+        let l1 = result.labels[0];
+        assert_eq!(result.labels[2], l1); // (2,0) → via (1,1)
+        assert_eq!(result.labels[4], l1); // (1,1) center
+        assert_eq!(result.labels[6], l1); // (0,2)
+        assert_eq!(result.labels[8], l1); // (2,2)
+    }
 }
