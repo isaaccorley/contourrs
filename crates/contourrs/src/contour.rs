@@ -14,8 +14,8 @@
 //! CW lo-rings and reversed CCW hi-rings become holes. Standard 16-case
 //! marching squares with saddle disambiguation via center value.
 
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 use geo_types::{Coord, LineString, Polygon};
 use rayon::prelude::*;
@@ -49,9 +49,10 @@ pub fn contours<T: RasterValue>(
         return Vec::new();
     }
 
-    // Sort + dedup thresholds
+    // Sort + dedup thresholds, filtering non-finite values (NaN, ±Inf)
     let mut thresholds: Vec<f64> = thresholds.to_vec();
-    thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    thresholds.retain(|t| t.is_finite());
+    thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap());
     thresholds.dedup();
     if thresholds.len() < 2 {
         return Vec::new();
@@ -250,7 +251,7 @@ fn grid_val(data: &[f64], w: usize, h: usize, col: i32, row: i32, mask: Option<&
     }
     let idx = row as usize * w + col as usize;
     if let Some(m) = mask {
-        if !m[idx] {
+        if m.get(idx).copied() != Some(true) {
             return f64::NAN;
         }
     }
@@ -510,7 +511,8 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
     }
 
     // Build adjacency: start endpoint → segment index
-    let mut endpoint_map: HashMap<PointKey, Vec<usize>> = HashMap::with_capacity(segments.len());
+    let mut endpoint_map: FxHashMap<PointKey, Vec<usize>> =
+        FxHashMap::with_capacity_and_hasher(segments.len(), Default::default());
     for (i, seg) in segments.iter().enumerate() {
         endpoint_map
             .entry(quantize(&seg.start))
@@ -526,7 +528,7 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
             continue;
         }
 
-        let mut coords = Vec::new();
+        let mut coords = Vec::with_capacity(8);
         used[start_idx] = true;
         coords.push(segments[start_idx].start);
         coords.push(segments[start_idx].end);
@@ -735,6 +737,237 @@ mod tests {
     }
 
     #[test]
+    fn test_saddle_code5_below_center() {
+        // Code 5: TL=1, TR=0, BR=1, BL=0 (diagonal pattern)
+        // With center < threshold → should take the "else" branch
+        // Need 2x2 cell where center = (tl+tr+br+bl)/4 < threshold
+        // tl=0.6, tr=0.1, br=0.6, bl=0.1 → center=0.35, threshold=0.5 → center < threshold
+        #[rustfmt::skip]
+        let data = vec![
+            0.6, 0.1,
+            0.1, 0.6,
+        ];
+        let grid = make_grid(&data, 2, 2);
+        let result = contours(&grid, &[0.5, 1.0], None, AffineTransform::identity());
+        // Should produce polygons (the saddle is resolved)
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_saddle_code5_above_center() {
+        // Code 5: same pattern but center >= threshold
+        // tl=0.9, tr=0.1, br=0.9, bl=0.1 → center=0.5, threshold=0.5 → center >= threshold
+        #[rustfmt::skip]
+        let data = vec![
+            0.9, 0.1,
+            0.1, 0.9,
+        ];
+        let grid = make_grid(&data, 2, 2);
+        let result = contours(&grid, &[0.5, 1.0], None, AffineTransform::identity());
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_saddle_code10() {
+        // Code 10: TL=0, TR=1, BR=0, BL=1 (opposite diagonal)
+        // center < threshold branch
+        #[rustfmt::skip]
+        let data = vec![
+            0.1, 0.6,
+            0.6, 0.1,
+        ];
+        let grid = make_grid(&data, 2, 2);
+        let result = contours(&grid, &[0.5, 1.0], None, AffineTransform::identity());
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_saddle_code10_above_center() {
+        // Code 10 with center >= threshold — need larger grid so interior cells
+        // have real neighbors (not boundary NEG_INFINITY)
+        #[rustfmt::skip]
+        let data = vec![
+            0.0, 0.1, 0.9, 0.0,
+            0.0, 0.9, 0.1, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+        ];
+        let grid = make_grid(&data, 4, 3);
+        let result = contours(&grid, &[0.3, 1.0], None, AffineTransform::identity());
+        // Just verify it runs without panic and exercises the saddle code path
+        let _ = result;
+    }
+
+    #[test]
+    fn test_contours_f32_grid() {
+        // Exercise the Cow::Owned branch (non-f64 grid)
+        let data: Vec<f32> = vec![0.0, 0.5, 1.0, 0.0, 0.5, 1.0, 0.0, 0.5, 1.0];
+        let grid = RasterGrid::new(&data, 3, 3);
+        let result = contours(&grid, &[0.25, 0.75], None, AffineTransform::identity());
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_contours_u8_grid() {
+        // Another non-f64 type
+        let data: Vec<u8> = vec![0, 5, 10, 0, 5, 10, 0, 5, 10];
+        let grid = RasterGrid::new(&data, 3, 3);
+        let result = contours(&grid, &[2.0, 7.0], None, AffineTransform::identity());
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_negative_det_transform() {
+        // Transform with negative determinant (y-flip)
+        // det = a*e - b*d = 1.0 * 1.0 - 0 * 0 = 1.0 (positive)
+        // For negative det: a=1, e=-1 → det = -1
+        let data = vec![0.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0];
+        let grid = make_grid(&data, 3, 3);
+        let transform = AffineTransform::new(1.0, 0.0, 0.0, 0.0, -1.0, 3.0);
+        let result = contours(&grid, &[2.0, 8.0], None, transform);
+        assert!(!result.is_empty());
+        // With negative det, ring classification is inverted
+        for (poly, _) in &result {
+            let ext_area = signed_area(poly.exterior());
+            // After normalize_polygon, exterior should be CCW (positive area)
+            assert!(
+                ext_area > 0.0,
+                "exterior area={} should be positive",
+                ext_area
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_exteriors() {
+        // Two disconnected peaks → multiple exterior rings in one band
+        #[rustfmt::skip]
+        let data = vec![
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 5.0, 0.0, 0.0, 0.0, 5.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ];
+        let grid = make_grid(&data, 7, 3);
+        let result = contours(&grid, &[2.0, 8.0], None, AffineTransform::identity());
+        // Should produce two separate polygons for the two peaks
+        assert!(
+            result.len() >= 2,
+            "expected >=2 polygons, got {}",
+            result.len()
+        );
+    }
+
+    #[test]
+    fn test_multiple_exteriors_with_holes() {
+        // Two disconnected peaks with higher centers → multiple exteriors each with a hole
+        #[rustfmt::skip]
+        let data = vec![
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 3.0, 3.0, 3.0, 0.0, 3.0, 3.0, 3.0, 0.0,
+            0.0, 3.0, 8.0, 3.0, 0.0, 3.0, 8.0, 3.0, 0.0,
+            0.0, 3.0, 3.0, 3.0, 0.0, 3.0, 3.0, 3.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ];
+        let grid = make_grid(&data, 9, 5);
+        let result = contours(&grid, &[1.0, 5.0], None, AffineTransform::identity());
+        // Band [1,5): the 3.0 rings are exteriors, the 8.0 centers punch holes
+        assert!(!result.is_empty());
+        let total_holes: usize = result.iter().map(|(p, _)| p.interiors().len()).sum();
+        assert!(total_holes >= 2, "expected >=2 holes, got {}", total_holes);
+    }
+
+    #[test]
+    fn test_empty_bands_caching() {
+        // Multiple threshold pairs where some bands are empty (exercise caching)
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        // Only band [3,7) is non-empty; [1,3) and [7,9) are empty
+        let result = contours(
+            &grid,
+            &[1.0, 3.0, 7.0, 9.0],
+            None,
+            AffineTransform::identity(),
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, 3.0);
+    }
+
+    #[test]
+    fn test_duplicate_thresholds() {
+        // Duplicate thresholds should be deduped
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let result = contours(
+            &grid,
+            &[3.0, 3.0, 7.0, 7.0],
+            None,
+            AffineTransform::identity(),
+        );
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_grid_too_small() {
+        // 1x1 grid — too small for marching squares
+        let data = vec![5.0];
+        let grid = make_grid(&data, 1, 1);
+        let result = contours(&grid, &[3.0, 7.0], None, AffineTransform::identity());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_interp_infinite() {
+        // Both infinite
+        assert!((interp(f64::NEG_INFINITY, f64::NEG_INFINITY, 5.0) - 0.5).abs() < 1e-10);
+        // One infinite
+        assert!((interp(f64::NEG_INFINITY, 10.0, 5.0) - 0.0).abs() < 1e-10);
+        assert!((interp(0.0, f64::NEG_INFINITY, 5.0) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_parallel_large_grid() {
+        // Grid >= 128x128 to exercise the rayon parallel path
+        let mut data = vec![0.0f64; 128 * 128];
+        // Create a gradient
+        for row in 0..128 {
+            for col in 0..128 {
+                data[row * 128 + col] = (col as f64 + row as f64) / 256.0;
+            }
+        }
+        let grid = make_grid(&data, 128, 128);
+        let result = contours(
+            &grid,
+            &[0.1, 0.3, 0.5, 0.7, 0.9],
+            None,
+            AffineTransform::identity(),
+        );
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_all_marching_codes() {
+        // Larger grid with varied values to exercise all 16 marching squares cases
+        // A radial gradient from center hits many cell configurations
+        let size = 16;
+        let mut data = vec![0.0f64; size * size];
+        let center = size as f64 / 2.0;
+        for row in 0..size {
+            for col in 0..size {
+                let dx = col as f64 - center;
+                let dy = row as f64 - center;
+                data[row * size + col] = 1.0 / (1.0 + (dx * dx + dy * dy).sqrt());
+            }
+        }
+        let grid = make_grid(&data, size, size);
+        let result = contours(
+            &grid,
+            &[0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.7],
+            None,
+            AffineTransform::identity(),
+        );
+        assert!(!result.is_empty());
+    }
+
+    #[test]
     fn test_area_conservation() {
         // 3x3 grid with vertical gradient
         let data = vec![0.0, 0.5, 1.0, 0.0, 0.5, 1.0, 0.0, 0.5, 1.0];
@@ -757,5 +990,48 @@ mod tests {
             .sum();
 
         assert!(total_area > 0.0, "total_area={}", total_area);
+    }
+
+    #[test]
+    fn test_nan_thresholds_filtered() {
+        // NaN and Inf thresholds should be silently filtered
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let result = contours(
+            &grid,
+            &[f64::NAN, 3.0, f64::INFINITY, 7.0, f64::NEG_INFINITY],
+            None,
+            AffineTransform::identity(),
+        );
+        // Only [3.0, 7.0] remains after filtering → same as normal case
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, 3.0);
+    }
+
+    #[test]
+    fn test_all_nan_thresholds() {
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let result = contours(
+            &grid,
+            &[f64::NAN, f64::NAN],
+            None,
+            AffineTransform::identity(),
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_short_mask_does_not_panic() {
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let short_mask: Vec<bool> = vec![];
+        let result = contours(
+            &grid,
+            &[3.0, 7.0],
+            Some(&short_mask),
+            AffineTransform::identity(),
+        );
+        assert!(result.is_empty());
     }
 }

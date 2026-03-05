@@ -244,3 +244,59 @@ def test_shapes_arrow_geoarrow_field_metadata():
     geo_field = table.schema.field("geometry")
     assert geo_field.metadata is not None
     assert geo_field.metadata[b"ARROW:extension:name"] == b"geoarrow.wkb"
+
+
+def test_empty_arrow_table_metadata():
+    """Empty result should still produce valid table with correct schema."""
+    data = np.zeros((4, 4), dtype=np.float32)
+    table = contours_arrow(data, thresholds=[0.5, 1.0])
+    assert table.num_rows == 0
+    assert table.schema.field("geometry").type == pa.binary()
+    assert table.schema.field("value").type == pa.float64()
+    assert b"geo" in table.schema.metadata
+    geo_field = table.schema.field("geometry")
+    assert geo_field.metadata[b"ARROW:extension:name"] == b"geoarrow.wkb"
+
+
+# ── mask validation ────────────────────────────────────────────────────
+
+
+def test_mask_shape_mismatch_raises():
+    """Mask with wrong shape should raise ValueError."""
+    import pytest
+
+    data = np.ones((4, 4), dtype=np.uint8)
+    bad_mask = np.ones((3, 3), dtype=bool)
+    with pytest.raises(ValueError, match="mask shape"):
+        shapes(data, mask=bad_mask)
+
+
+def test_mask_shape_mismatch_contours():
+    """Mask mismatch on contours should also raise."""
+    import pytest
+
+    data = np.ones((4, 4), dtype=np.float32)
+    bad_mask = np.ones((2, 2), dtype=bool)
+    with pytest.raises(ValueError, match="mask shape"):
+        contours(data, thresholds=[0.5, 1.0], mask=bad_mask)
+
+
+def test_nan_thresholds_filtered():
+    """NaN/Inf thresholds should be silently filtered."""
+    data = np.full((4, 4), 0.75, dtype=np.float32)
+    result = contours(
+        data, thresholds=[float("nan"), 0.5, float("inf"), 1.0, float("-inf")]
+    )
+    # Should produce same result as [0.5, 1.0]
+    assert len(result) == 1
+    assert result[0][1] == 0.5
+
+
+def test_shapes_non_contiguous_source_raises_value_error():
+    """Non-contiguous source arrays should raise ValueError, not panic."""
+    import pytest
+
+    data = np.arange(16, dtype=np.uint8).reshape(4, 4)[:, ::2]
+    assert not data.flags["C_CONTIGUOUS"]
+    with pytest.raises(ValueError, match="C-contiguous"):
+        shapes(data)

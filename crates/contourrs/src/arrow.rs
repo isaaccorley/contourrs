@@ -44,6 +44,10 @@ pub fn polygon_to_wkb_into(buf: &mut Vec<u8>, polygon: &Polygon<f64>) {
     }
 }
 
+// Compile-time guarantee that Coord<f64> is exactly two contiguous f64s (no padding).
+// Required for the unsafe reinterpret cast in write_ring on little-endian targets.
+const _: () = assert!(std::mem::size_of::<geo_types::Coord<f64>>() == 16);
+
 #[inline]
 fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
     buf.extend_from_slice(&(coords.len() as u32).to_le_bytes());
@@ -51,7 +55,8 @@ fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
     // Reinterpret the entire coords slice as bytes in one shot.
     #[cfg(target_endian = "little")]
     {
-        // SAFETY: Coord<f64> is two contiguous f64s, no padding on LE targets.
+        // SAFETY: Coord<f64> is two contiguous f64s with no padding (verified by
+        // the compile-time assert above) on LE targets, matching WKB LE layout.
         let byte_len = std::mem::size_of_val(coords);
         let ptr = coords.as_ptr() as *const u8;
         buf.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, byte_len) });
@@ -85,6 +90,12 @@ pub fn polygons_to_record_batch(
 
     for (polygon, value) in polygons {
         polygon_to_wkb_into(&mut wkb_data, polygon);
+        if wkb_data.len() > i32::MAX as usize {
+            return Err(arrow::error::ArrowError::ComputeError(format!(
+                "WKB buffer exceeds i32::MAX ({} bytes)",
+                wkb_data.len()
+            )));
+        }
         offsets.push(wkb_data.len() as i32);
         values.push(*value);
     }

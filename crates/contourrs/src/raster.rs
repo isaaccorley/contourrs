@@ -46,6 +46,14 @@ impl<'a, T: RasterValue> RasterGrid<'a, T> {
 
     #[inline]
     pub fn get(&self, col: usize, row: usize) -> T {
+        debug_assert!(
+            col < self.width && row < self.height,
+            "RasterGrid::get({}, {}) out of bounds ({}x{})",
+            col,
+            row,
+            self.width,
+            self.height
+        );
         self.data[row * self.width + col]
     }
 }

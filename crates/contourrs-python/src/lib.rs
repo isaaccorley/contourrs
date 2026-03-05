@@ -1,7 +1,7 @@
 #![allow(clippy::useless_conversion)] // false positive from PyO3 proc macro expansion
 
 use arrow::array::{Array, StructArray};
-use arrow::ffi::to_ffi;
+use arrow::ffi::{to_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::conversion::IntoPyObject;
 use pyo3::prelude::*;
@@ -16,12 +16,34 @@ use contourrs::{AffineTransform, Connectivity, RasterGrid};
 /// Emit let-bindings for mask guard + slice. The guard (`_mask_ro`) keeps
 /// the numpy array alive; `mask_slice` is `Option<&[bool]>`.
 macro_rules! extract_mask {
-    ($mask:expr => $guard:ident, $slice:ident) => {
+    ($mask:expr, $source:expr => $guard:ident, $slice:ident) => {
         let $guard: Option<PyReadonlyArray2<bool>> = if let Some(mask_arr) = $mask {
             let mask_np = mask_arr.cast::<numpy::PyArray2<bool>>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array")
             })?;
-            Some(mask_np.readonly())
+            let mask_ro = mask_np.readonly();
+            let src_shape: Vec<usize> = $source
+                .getattr("shape")
+                .and_then(|s| s.extract())
+                .map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err(
+                        "source must have a 2D 'shape' attribute",
+                    )
+                })?;
+            if src_shape.len() < 2 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "source must be at least 2D",
+                ));
+            }
+            let mask_shape = mask_ro.shape();
+            if mask_shape[0] != src_shape[0] || mask_shape[1] != src_shape[1] {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "mask shape {:?} does not match source shape {:?}",
+                    mask_shape,
+                    &src_shape[..2]
+                )));
+            }
+            Some(mask_ro)
         } else {
             None
         };
@@ -63,7 +85,9 @@ macro_rules! dispatch_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let polys = $py.detach(|| {
@@ -87,7 +111,9 @@ macro_rules! dispatch_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let polys = $py.detach(|| {
@@ -126,7 +152,9 @@ macro_rules! dispatch_contour_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
@@ -151,7 +179,9 @@ macro_rules! dispatch_contour_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
-                let data = arr.as_slice().expect("contiguous array required");
+                let data = arr.as_slice().map_err(|_| {
+                    pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
+                })?;
                 let shape = arr.shape();
                 let (height, width) = (shape[0], shape[1]);
                 let thresholds = $thresholds;
@@ -195,7 +225,7 @@ fn shapes<'py>(
     let conn = conn.unwrap();
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     dtype_list!(
         dispatch_geojson,
@@ -270,7 +300,7 @@ fn shapes_arrow<'py>(
     let conn = conn.unwrap();
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     dtype_list!(
         dispatch_arrow,
@@ -296,37 +326,45 @@ fn polygons_to_arrow_table(
     let (ffi_array, ffi_schema) = to_ffi(&struct_array.to_data())
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-    // Heap-allocate for stable pointers; pyarrow takes ownership via release callback
+    // Heap-allocate for stable pointers; pyarrow takes ownership via release callback.
+    // If _import_from_c fails, we must re-box and drop to avoid leaking.
     let array_ptr = Box::into_raw(Box::new(ffi_array)) as usize;
     let schema_ptr = Box::into_raw(Box::new(ffi_schema)) as usize;
 
     // Import into PyArrow
     let pa = py.import("pyarrow")?;
     let rb_cls = pa.getattr("RecordBatch")?;
-    let record_batch = rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr))?;
+    let record_batch = match rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr)) {
+        Ok(rb) => rb,
+        Err(e) => {
+            // SAFETY: pointers were created by Box::into_raw above and not yet consumed
+            unsafe {
+                drop(Box::from_raw(array_ptr as *mut FFI_ArrowArray));
+                drop(Box::from_raw(schema_ptr as *mut FFI_ArrowSchema));
+            }
+            return Err(e);
+        }
+    };
 
-    // Build schema with GeoArrow field-level extension metadata + GeoParquet schema metadata.
-    // Field metadata may be lost through the C Data Interface, so we reconstruct it here.
-    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
-
-    let field_fn = pa.getattr("field")?;
-    let schema_fn = pa.getattr("schema")?;
-    let binary_ty = pa.call_method0("binary")?;
-    let float64_ty = pa.call_method0("float64")?;
+    // Layer GeoArrow field metadata + GeoParquet schema metadata onto the
+    // imported schema. Field metadata may be lost through the C Data Interface.
+    let imported_schema = record_batch.getattr("schema")?;
 
     // GeoArrow extension type metadata on geometry field
     let geo_field_meta = PyDict::new(py);
     geo_field_meta.set_item("ARROW:extension:name", "geoarrow.wkb")?;
     geo_field_meta.set_item("ARROW:extension:metadata", "{}")?;
 
-    let geo_field = field_fn.call1(("geometry", &binary_ty, false))?;
+    let geo_field = imported_schema.call_method1("field", ("geometry",))?;
     let geo_field = geo_field.call_method1("with_metadata", (geo_field_meta,))?;
-    let val_field = field_fn.call1(("value", &float64_ty, false))?;
+    let val_field = imported_schema.call_method1("field", ("value",))?;
 
-    // Schema-level GeoParquet metadata for compatibility
+    // GeoParquet schema-level metadata for compatibility
+    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
     let schema_meta = PyDict::new(py);
-    schema_meta.set_item(pyo3::intern!(py, "geo"), geo_meta)?;
+    schema_meta.set_item("geo", geo_meta)?;
 
+    let schema_fn = pa.getattr("schema")?;
     let schema = schema_fn.call1((PyList::new(
         py,
         [geo_field.unbind().into_any(), val_field.unbind().into_any()],
@@ -358,7 +396,7 @@ fn contours<'py>(
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     contour_dtype_list!(
         dispatch_contour_geojson,
@@ -387,7 +425,7 @@ fn contours_arrow<'py>(
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     contour_dtype_list!(
         dispatch_contour_arrow,

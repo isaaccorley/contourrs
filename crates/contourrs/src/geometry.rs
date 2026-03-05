@@ -23,6 +23,9 @@ pub fn signed_area(ring: &LineString<f64>) -> f64 {
 pub fn point_in_ring(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
     let coords = &ring.0;
     let n = coords.len();
+    if n < 3 {
+        return false;
+    }
 
     // Bounding box pre-check
     if n > 0 {
@@ -103,6 +106,41 @@ mod tests {
             Coord { x: 0.0, y: 0.0 },
         ]);
         assert!(point_in_ring(&Coord { x: 1.0, y: 1.0 }, &ring));
+        // Outside bbox (right)
         assert!(!point_in_ring(&Coord { x: 3.0, y: 1.0 }, &ring));
+        // Outside bbox (above)
+        assert!(!point_in_ring(&Coord { x: 1.0, y: -1.0 }, &ring));
+    }
+
+    #[test]
+    fn test_signed_area_degenerate() {
+        // Empty ring
+        let empty = LineString(vec![]);
+        assert_eq!(signed_area(&empty), 0.0);
+        // Single point
+        let single = LineString(vec![Coord { x: 1.0, y: 1.0 }]);
+        assert_eq!(signed_area(&single), 0.0);
+        // Two points (not a ring)
+        let two = LineString(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }]);
+        assert_eq!(signed_area(&two), 0.0);
+    }
+
+    #[test]
+    fn test_point_outside_bbox_y() {
+        // Point outside bbox vertically (below)
+        let ring = LineString(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 2.0, y: 0.0 },
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 0.0, y: 2.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]);
+        assert!(!point_in_ring(&Coord { x: 1.0, y: 3.0 }, &ring));
+    }
+
+    #[test]
+    fn test_point_in_empty_ring_is_false() {
+        let ring = LineString(vec![]);
+        assert!(!point_in_ring(&Coord { x: 0.0, y: 0.0 }, &ring));
     }
 }

@@ -9,7 +9,7 @@ build:
 
 test:
 	cargo test --workspace
-	uv run pytest tests/ -v
+	uv run --extra dev pytest tests/ -v
 
 check:
 	uv run pre-commit run --all-files

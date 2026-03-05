@@ -63,4 +63,11 @@ mod tests {
         assert_eq!(t.apply(1.0, 0.0), (110.0, 200.0));
         assert_eq!(t.apply(0.0, 1.0), (100.0, 190.0));
     }
+
+    #[test]
+    fn test_default_is_identity() {
+        let d = AffineTransform::default();
+        let i = AffineTransform::identity();
+        assert_eq!(d.apply(3.0, 7.0), i.apply(3.0, 7.0));
+    }
 }
