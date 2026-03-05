@@ -1,7 +1,7 @@
 #![allow(clippy::useless_conversion)] // false positive from PyO3 proc macro expansion
 
 use arrow::array::{Array, StructArray};
-use arrow::ffi::to_ffi;
+use arrow::ffi::{to_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::conversion::IntoPyObject;
 use pyo3::prelude::*;
@@ -16,12 +16,27 @@ use contourrs::{AffineTransform, Connectivity, RasterGrid};
 /// Emit let-bindings for mask guard + slice. The guard (`_mask_ro`) keeps
 /// the numpy array alive; `mask_slice` is `Option<&[bool]>`.
 macro_rules! extract_mask {
-    ($mask:expr => $guard:ident, $slice:ident) => {
+    ($mask:expr, $source:expr => $guard:ident, $slice:ident) => {
         let $guard: Option<PyReadonlyArray2<bool>> = if let Some(mask_arr) = $mask {
             let mask_np = mask_arr.cast::<numpy::PyArray2<bool>>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array")
             })?;
-            Some(mask_np.readonly())
+            let mask_ro = mask_np.readonly();
+            let src_shape: Vec<usize> = $source
+                .getattr("shape")
+                .and_then(|s| s.extract())
+                .unwrap_or_default();
+            let mask_shape = mask_ro.shape();
+            if src_shape.len() >= 2
+                && (mask_shape[0] != src_shape[0] || mask_shape[1] != src_shape[1])
+            {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "mask shape {:?} does not match source shape {:?}",
+                    mask_shape,
+                    &src_shape[..2]
+                )));
+            }
+            Some(mask_ro)
         } else {
             None
         };
@@ -195,7 +210,7 @@ fn shapes<'py>(
     let conn = conn.unwrap();
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     dtype_list!(
         dispatch_geojson,
@@ -270,7 +285,7 @@ fn shapes_arrow<'py>(
     let conn = conn.unwrap();
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     dtype_list!(
         dispatch_arrow,
@@ -296,14 +311,25 @@ fn polygons_to_arrow_table(
     let (ffi_array, ffi_schema) = to_ffi(&struct_array.to_data())
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-    // Heap-allocate for stable pointers; pyarrow takes ownership via release callback
+    // Heap-allocate for stable pointers; pyarrow takes ownership via release callback.
+    // If _import_from_c fails, we must re-box and drop to avoid leaking.
     let array_ptr = Box::into_raw(Box::new(ffi_array)) as usize;
     let schema_ptr = Box::into_raw(Box::new(ffi_schema)) as usize;
 
     // Import into PyArrow
     let pa = py.import("pyarrow")?;
     let rb_cls = pa.getattr("RecordBatch")?;
-    let record_batch = rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr))?;
+    let record_batch = match rb_cls.call_method1("_import_from_c", (array_ptr, schema_ptr)) {
+        Ok(rb) => rb,
+        Err(e) => {
+            // SAFETY: pointers were created by Box::into_raw above and not yet consumed
+            unsafe {
+                drop(Box::from_raw(array_ptr as *mut FFI_ArrowArray));
+                drop(Box::from_raw(schema_ptr as *mut FFI_ArrowSchema));
+            }
+            return Err(e);
+        }
+    };
 
     // Layer GeoArrow field metadata + GeoParquet schema metadata onto the
     // imported schema. Field metadata may be lost through the C Data Interface.
@@ -355,7 +381,7 @@ fn contours<'py>(
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     contour_dtype_list!(
         dispatch_contour_geojson,
@@ -384,7 +410,7 @@ fn contours_arrow<'py>(
     let (_, affine) = parse_transform(None, transform)?;
     let dtype_str: String = source.getattr("dtype")?.getattr("name")?.extract()?;
 
-    extract_mask!(mask => _mask_ro, mask_slice);
+    extract_mask!(mask, source => _mask_ro, mask_slice);
 
     contour_dtype_list!(
         dispatch_contour_arrow,

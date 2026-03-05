@@ -308,6 +308,7 @@ dependencies = [
  "geo-types",
  "num-traits",
  "rayon",
+ "rustc-hash",
 ]
 
 [[package]]

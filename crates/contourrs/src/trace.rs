@@ -312,24 +312,31 @@ fn build_polygons(
                 })
                 .collect();
 
-            for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
-                let exterior = &rings[ext_idx].1;
-                let (min_x, max_x, min_y, max_y) = ext_bboxes[j];
-                let mut my_holes = Vec::new();
-                for &hole_idx in &hole_idxs {
-                    let hp = &rings[hole_idx].1 .0[0];
-                    // Bbox pre-filter before expensive ray-cast
+            // Assign holes to exteriors via point-in-ring with bbox pre-filter.
+            // Holes are cloned since they could theoretically match multiple exteriors.
+            let mut ext_holes: Vec<Vec<LineString<f64>>> = vec![Vec::new(); exterior_idxs.len()];
+            for &hole_idx in &hole_idxs {
+                let hp = &rings[hole_idx].1 .0[0];
+                for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
+                    let (min_x, max_x, min_y, max_y) = ext_bboxes[j];
                     if hp.x >= min_x
                         && hp.x <= max_x
                         && hp.y >= min_y
                         && hp.y <= max_y
-                        && point_in_ring(hp, exterior)
+                        && point_in_ring(hp, &rings[ext_idx].1)
                     {
-                        my_holes.push(rings[hole_idx].1.clone());
+                        ext_holes[j].push(std::mem::replace(
+                            &mut rings[hole_idx].1,
+                            LineString(Vec::new()),
+                        ));
+                        break; // each hole belongs to exactly one exterior
                     }
                 }
-                let polygon = Polygon::new(exterior.clone(), my_holes);
-                result.push((polygon, value));
+            }
+            for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
+                let ext = std::mem::replace(&mut rings[ext_idx].1, LineString(Vec::new()));
+                let my_holes = std::mem::take(&mut ext_holes[j]);
+                result.push((Polygon::new(ext, my_holes), value));
             }
         }
     }

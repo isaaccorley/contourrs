@@ -14,8 +14,8 @@
 //! CW lo-rings and reversed CCW hi-rings become holes. Standard 16-case
 //! marching squares with saddle disambiguation via center value.
 
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 use geo_types::{Coord, LineString, Polygon};
 use rayon::prelude::*;
@@ -49,9 +49,10 @@ pub fn contours<T: RasterValue>(
         return Vec::new();
     }
 
-    // Sort + dedup thresholds
+    // Sort + dedup thresholds, filtering non-finite values (NaN, ±Inf)
     let mut thresholds: Vec<f64> = thresholds.to_vec();
-    thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    thresholds.retain(|t| t.is_finite());
+    thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap());
     thresholds.dedup();
     if thresholds.len() < 2 {
         return Vec::new();
@@ -510,7 +511,8 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
     }
 
     // Build adjacency: start endpoint → segment index
-    let mut endpoint_map: HashMap<PointKey, Vec<usize>> = HashMap::with_capacity(segments.len());
+    let mut endpoint_map: FxHashMap<PointKey, Vec<usize>> =
+        FxHashMap::with_capacity_and_hasher(segments.len(), Default::default());
     for (i, seg) in segments.iter().enumerate() {
         endpoint_map
             .entry(quantize(&seg.start))
@@ -526,7 +528,7 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
             continue;
         }
 
-        let mut coords = Vec::new();
+        let mut coords = Vec::with_capacity(8);
         used[start_idx] = true;
         coords.push(segments[start_idx].start);
         coords.push(segments[start_idx].end);
@@ -988,5 +990,34 @@ mod tests {
             .sum();
 
         assert!(total_area > 0.0, "total_area={}", total_area);
+    }
+
+    #[test]
+    fn test_nan_thresholds_filtered() {
+        // NaN and Inf thresholds should be silently filtered
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let result = contours(
+            &grid,
+            &[f64::NAN, 3.0, f64::INFINITY, 7.0, f64::NEG_INFINITY],
+            None,
+            AffineTransform::identity(),
+        );
+        // Only [3.0, 7.0] remains after filtering → same as normal case
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, 3.0);
+    }
+
+    #[test]
+    fn test_all_nan_thresholds() {
+        let data = vec![5.0; 9];
+        let grid = make_grid(&data, 3, 3);
+        let result = contours(
+            &grid,
+            &[f64::NAN, f64::NAN],
+            None,
+            AffineTransform::identity(),
+        );
+        assert!(result.is_empty());
     }
 }
