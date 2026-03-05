@@ -16,6 +16,7 @@ OUTPUT_DIRS = (Path("assets"), Path("docs/assets"))
 
 def _save_figure(fig, name: str) -> None:
     for output_dir in OUTPUT_DIRS:
+        output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / name
         fig.savefig(output_path, dpi=150, bbox_inches="tight")
         print(f"Saved {output_path}")

@@ -32,6 +32,12 @@ Built for the **ML-to-GIS pipeline**: model inference output goes in, GeoJSON or
 
 ![Contours: DEM to isobands](assets/contours.png){ width="600" }
 
+## Real-world examples
+
+![USDA CDL tiled polygonization](assets/cdl_polygonize.png){ width="900" }
+
+![Mount Rainier DEM elevation bins](assets/contours_mt_rainier.png){ width="900" }
+
 ## Highlights
 
 - **No GDAL** — pure Rust core, zero system dependencies
