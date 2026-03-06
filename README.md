@@ -44,6 +44,10 @@ python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 102
 
 # Synthetic + real DEM visualization
 python examples/dem_contour.py
+
+# TorchGeo FTW segmentation -> contourrs polygons (class index 1)
+uv sync --extra examples
+uv run --with jupyter jupyter lab examples/torchgeo_ftw_polygonize.ipynb
 ```
 
 ## Development
@@ -51,7 +55,7 @@ python examples/dem_contour.py
 ```bash
 git clone https://github.com/isaaccorley/contourrs.git
 cd contourrs
-uv sync --extra dev
+uv sync --extra all
 uv run maturin develop --release
 uv run pytest tests/ -v
 uv run pre-commit run --all-files
