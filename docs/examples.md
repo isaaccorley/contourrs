@@ -185,3 +185,19 @@ Outputs:
 Example output (real DEM):
 
 ![Mount Rainier DEM isobands](assets/contours_mt_rainier.png)
+
+## End-to-end TorchGeo FTW segmentation -> contourrs polygons
+
+Run TorchGeo's FTW U-Net model (`Unet_Weights.SENTINEL2_FTW_PRUE_CCBY_EFNETB3`) on a
+Fields of the World sample, then polygonize only class index `1` using
+`contourrs.shapes`.
+
+```bash
+uv sync --extra examples
+uv run --with jupyter jupyter lab examples/torchgeo_ftw_polygonize.ipynb
+```
+
+The notebook writes class-1 polygons to
+`examples/output/ftw_fields_idx50.parquet`.
+It also saves `assets/torchgeo_ftw_polygonize.png` and `docs/assets/torchgeo_ftw_polygonize.png`.
+Set `download=True` in the dataset cell on first run if FTW data is not local.

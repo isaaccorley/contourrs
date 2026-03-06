@@ -1,4 +1,4 @@
-.PHONY: install build test check clean
+.PHONY: install build test check docs clean
 
 install:
 	uv run pre-commit install
@@ -13,6 +13,9 @@ test:
 
 check:
 	uv run pre-commit run --all-files
+
+docs:
+	uv run --with mkdocs --with mkdocs-material mkdocs serve --dev-addr 0.0.0.0:8000
 
 clean:
 	cargo clean
