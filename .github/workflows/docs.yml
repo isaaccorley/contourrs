@@ -28,7 +28,7 @@ jobs:
       - name: Build notebook tutorials
         run: |
           mkdir -p docs/tutorials
-          for nb in examples/dem_contour.ipynb examples/cdl_tiled_polygonize.ipynb; do
+          for nb in examples/quickstart.ipynb examples/dem_contour.ipynb examples/cdl_tiled_polygonize.ipynb; do
             jupyter nbconvert \
               --to markdown \
               --execute \
@@ -38,6 +38,11 @@ jobs:
               --output-dir docs/tutorials \
               "$nb"
           done
+          # torchgeo notebook requires torch+torchgeo; convert without executing
+          jupyter nbconvert \
+            --to markdown \
+            --output-dir docs/tutorials \
+            examples/torchgeo_ftw_polygonize.ipynb
       - run: zensical build --clean
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
