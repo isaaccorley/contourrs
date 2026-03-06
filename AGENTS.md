@@ -21,6 +21,17 @@ make test      # run full test suite
 make check     # lint/format gate (run before committing)
 ```
 
+## Docs + notebook tutorials
+
+- Docs are built with `zensical` from `docs/`.
+- Real-world examples are notebook-first under `examples/`:
+  - `examples/dem_contour.ipynb`
+  - `examples/cdl_tiled_polygonize.ipynb`
+  - `examples/torchgeo_ftw_polygonize.ipynb`
+- During docs deploy (`.github/workflows/docs.yml`), notebooks are executed with `nbconvert` and rendered to Markdown in `docs/tutorials/` before `zensical build`.
+- Cells tagged `skip_ci` are removed during CI execution/conversion to keep builds deterministic.
+- Notebook CI (`.github/workflows/integration-notebooks.yml`) executes and converts tutorial notebooks on `push`, `pull_request`, and `workflow_dispatch`.
+
 ## Releasing
 
 Tag-triggered releases. No auto-release on merge to main.
@@ -37,6 +48,6 @@ Tag-triggered releases. No auto-release on merge to main.
 
 ### What happens
 
-- GitHub Release created with auto-generated notes (`--generate-notes`)
+- GitHub Release created with auto-generated notes (`--generate-notes`) if one does not already exist for the tag
 - Wheels built for linux x86/arm, macOS arm, Windows (py 3.12–3.14)
 - sdist + wheels published to PyPI via trusted publishing

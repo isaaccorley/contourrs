@@ -24,7 +24,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - run: pip install zensical
+      - run: pip install zensical jupyter nbconvert
+      - name: Build notebook tutorials
+        run: |
+          mkdir -p docs/tutorials
+          for nb in examples/dem_contour.ipynb examples/cdl_tiled_polygonize.ipynb; do
+            jupyter nbconvert \
+              --to markdown \
+              --execute \
+              --ExecutePreprocessor.timeout=1200 \
+              --TagRemovePreprocessor.enabled=True \
+              --TagRemovePreprocessor.remove_cell_tags='["skip_ci"]' \
+              --output-dir docs/tutorials \
+              "$nb"
+          done
       - run: zensical build --clean
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
