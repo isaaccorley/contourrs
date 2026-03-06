@@ -1,0 +1,30 @@
+name: Integration Notebooks
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  notebooks:
+    name: Run integration notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build and install
+        run: uv run --python 3.13 --extra all --with maturin maturin develop --release
+
+      - name: Run notebooks
+        run: |
+          for nb in examples/*.ipynb; do
+            echo "Running $nb"
+            uv run --python 3.13 --extra all jupyter nbconvert --to script --stdout "$nb" | uv run --python 3.13 --extra all python
+          done

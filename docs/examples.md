@@ -199,4 +199,5 @@ uv run --with jupyter jupyter lab examples/torchgeo_ftw_polygonize.ipynb
 
 The notebook writes class-1 polygons to
 `examples/output/ftw_fields_idx50.parquet`.
+It also saves `assets/torchgeo_ftw_polygonize.png` and `docs/assets/torchgeo_ftw_polygonize.png`.
 Set `download=True` in the dataset cell on first run if FTW data is not local.
