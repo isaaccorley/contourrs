@@ -15,13 +15,13 @@ jobs:
     name: Run integration notebooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.8.2
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7.3.1
 
       - name: Build and install
         run: uv run --python 3.13 --extra all --with maturin maturin develop --release
