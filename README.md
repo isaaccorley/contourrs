@@ -46,8 +46,8 @@ python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 102
 python examples/dem_contour.py
 
 # TorchGeo FTW segmentation -> contourrs polygons (class index 1)
-uv sync --extra examples
-uv run --with jupyter jupyter lab examples/torchgeo_ftw_polygonize.ipynb
+uv sync --extra all
+uv run --extra all jupyter nbconvert --to notebook --execute --inplace examples/torchgeo_ftw_polygonize.ipynb
 ```
 
 ## Development

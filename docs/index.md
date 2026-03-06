@@ -34,11 +34,14 @@ Built for the **ML-to-GIS pipeline**: model inference output goes in, GeoJSON or
 
 ## Real-world examples
 
+**Converting categorical Land Cover data products**
 ![USDA CDL tiled polygonization](assets/cdl_polygonize.png){ width="900" }
 
+**Converting continuous-valued Digital Elevation Models**
 ![Mount Rainier DEM elevation bins](assets/contours_mt_rainier.png){ width="900" }
 
-![TorchGeo FTW class-1 field polygons](assets/torchgeo_ftw_polygonize.png){ width="900" }
+**Converting Machine Learning model predictions**
+![Fields-of-the-World Field Boundaries](assets/torchgeo_ftw_polygonize.png){ width="900" }
 
 ## Highlights
 
