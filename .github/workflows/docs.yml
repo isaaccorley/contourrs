@@ -21,15 +21,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6.2.0
-        with:
-          python-version: "3.x"
-      - run: pip install zensical jupyter nbconvert
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.8.2
+
+      - uses: astral-sh/setup-uv@v7.3.1
+
+      - name: Build and install contourrs
+        run: uv run --python 3.13 --extra all --with maturin maturin develop --release
+
       - name: Build notebook tutorials
         run: |
           mkdir -p docs/tutorials
           for nb in examples/quickstart.ipynb examples/dem_contour.ipynb examples/cdl_tiled_polygonize.ipynb; do
-            jupyter nbconvert \
+            uv run --python 3.13 --extra all jupyter nbconvert \
               --to markdown \
               --execute \
               --ExecutePreprocessor.timeout=1200 \
@@ -39,11 +45,12 @@ jobs:
               "$nb"
           done
           # torchgeo notebook requires torch+torchgeo; convert without executing
-          jupyter nbconvert \
+          uv run --python 3.13 --extra all jupyter nbconvert \
             --to markdown \
             --output-dir docs/tutorials \
             examples/torchgeo_ftw_polygonize.ipynb
-      - run: zensical build --clean
+
+      - run: uv run --python 3.13 --with zensical zensical build --clean
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
