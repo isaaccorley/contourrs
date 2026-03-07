@@ -24,7 +24,7 @@ Extract polygon shapes from a raster array.
 | `connectivity` | `int` | `4` | Pixel neighborhood: `4` or `8` |
 | `transform` | `tuple[float, ...]` | `None` | Affine transform as `(a, b, c, d, e, f)` |
 
-**Returns:** `list[tuple[dict, float]]` — GeoJSON geometry dicts paired with pixel values. Signature matches `rasterio.features.shapes`.
+**Returns:** `list[tuple[dict, float]]` — GeoJSON geometry dicts paired with pixel values. Returns an eager list; `rasterio.features.shapes` returns an iterator.
 
 **Example:**
 
