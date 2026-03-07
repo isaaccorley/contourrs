@@ -159,7 +159,8 @@ pub fn contours<T: RasterValue>(
             let ext_areas: Vec<f64> = exteriors.iter().map(|ext| signed_area(ext).abs()).collect();
             let ext_bboxes: Vec<BBox> = exteriors.iter().map(BBox::from_ring).collect();
             let hole_areas: Vec<f64> = holes.iter().map(|hole| signed_area(hole).abs()).collect();
-            let mut hole_slots: Vec<Option<LineString<f64>>> = holes.into_iter().map(Some).collect();
+            let mut hole_slots: Vec<Option<LineString<f64>>> =
+                holes.into_iter().map(Some).collect();
             let mut hole_assignments: Vec<Vec<usize>> = vec![Vec::new(); exteriors.len()];
 
             for (i, hole_slot) in hole_slots.iter().enumerate() {
