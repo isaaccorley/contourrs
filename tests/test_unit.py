@@ -300,3 +300,80 @@ def test_shapes_non_contiguous_source_raises_value_error():
     assert not data.flags["C_CONTIGUOUS"]
     with pytest.raises(ValueError, match="C-contiguous"):
         shapes(data)
+
+
+# ── nodata= parameter ──────────────────────────────────────────────────
+
+
+def test_shapes_nodata_excludes_value():
+    data = np.array([[0, 1, 1], [0, 2, 2], [3, 3, 3]], dtype=np.uint8)
+    result = shapes(data, nodata=0)
+    values = {v for _, v in result}
+    assert 0.0 not in values
+    assert 1.0 in values
+
+
+def test_shapes_nodata_nan():
+    data = np.array([[np.nan, 1.0], [1.0, 1.0]], dtype=np.float32)
+    result = shapes(data, nodata=np.nan)
+    values = {v for _, v in result}
+    assert 1.0 in values
+
+
+def test_shapes_nodata_combines_with_mask():
+    data = np.array([[0, 1], [2, 3]], dtype=np.uint8)
+    mask = np.array([[True, True], [False, True]], dtype=bool)
+    result = shapes(data, mask=mask, nodata=0)
+    values = {v for _, v in result}
+    assert 0.0 not in values
+    assert 2.0 not in values
+
+
+def test_shapes_arrow_nodata():
+    data = np.array([[0, 1, 1], [0, 2, 2], [3, 3, 3]], dtype=np.uint8)
+    table = shapes_arrow(data, nodata=0)
+    values = set(table.column("value").to_pylist())
+    assert 0.0 not in values
+
+
+def test_contours_nodata_nan():
+    # Gradient so threshold crossings exist even after masking one cell.
+    data = np.linspace(0, 1, 16).reshape(4, 4).astype(np.float32)
+    data[0, 0] = np.nan
+    result = contours(data, thresholds=[0.25, 0.5, 0.75], nodata=np.nan)
+    assert len(result) >= 1
+
+
+def test_contours_arrow_nodata_nan():
+    # Use a gradient so threshold crossings exist even after masking one cell.
+    data = np.linspace(0, 1, 16).reshape(4, 4).astype(np.float32)
+    data[0, 0] = np.nan
+    table = contours_arrow(data, thresholds=[0.25, 0.5, 0.75], nodata=np.nan)
+    assert table.num_rows >= 1
+
+
+# ── Affine transform input ─────────────────────────────────────────────
+
+
+def test_shapes_transform_affine_object():
+    affine = __import__("pytest").importorskip("affine")
+
+    data = np.ones((2, 2), dtype=np.uint8)
+    t = affine.Affine(10.0, 0.0, 100.0, 0.0, -10.0, 200.0)
+    result = shapes(data, transform=t)
+    assert len(result) >= 1
+    coords = result[0][0]["coordinates"][0]
+    xs = [c[0] for c in coords]
+    assert min(xs) >= 100.0
+
+
+def test_contours_with_affine_transform():
+    affine = __import__("pytest").importorskip("affine")
+
+    data = np.linspace(0, 1, 16).reshape(4, 4).astype(np.float32)
+    t = affine.Affine(10.0, 0.0, 500.0, 0.0, -10.0, 4500.0)
+    result = contours(data, thresholds=[0.25, 0.5, 0.75], transform=t)
+    assert len(result) >= 1
+    coords = result[0][0]["coordinates"][0]
+    xs = [c[0] for c in coords]
+    assert min(xs) >= 490.0

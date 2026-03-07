@@ -8,11 +8,15 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     import pyarrow
 
+# Accepts affine.Affine (which duck-types via .a/.b/.c/.d/.e/.f) or a plain 6-tuple.
+type TransformLike = tuple[float, ...] | object | None
+
 def shapes(
     source: NDArray,
     mask: NDArray[np.bool_] | None = None,
     connectivity: int = 4,
-    transform: tuple[float, ...] | None = None,
+    transform: TransformLike = None,
+    nodata: float | None = None,
 ) -> list[tuple[dict, float]]:
     """Extract polygon shapes from a raster array.
 
@@ -24,13 +28,18 @@ def shapes(
         2D boolean array. True = include pixel, False = exclude.
     connectivity : int, optional
         Pixel neighborhood connectivity, 4 or 8. Default is 4.
-    transform : tuple[float, ...], optional
-        Affine transform as (a, b, c, d, e, f). Default is identity.
+    transform : affine.Affine or tuple[float, ...], optional
+        Affine transform as an ``affine.Affine`` instance or a 6-tuple
+        ``(a, b, c, d, e, f)``. Default is identity.
+    nodata : int or float, optional
+        Pixels equal to this value are excluded. Pass ``np.nan`` to exclude
+        NaN pixels. If both ``mask`` and ``nodata`` are given the effective
+        mask is ``mask & (source != nodata)``.
 
     Returns
     -------
     list[tuple[dict, float]]
-        List of (GeoJSON geometry dict, pixel value) tuples.
+        Eager list of (GeoJSON geometry dict, pixel value) tuples.
     """
     ...
 
@@ -38,7 +47,8 @@ def shapes_arrow(
     source: NDArray,
     mask: NDArray[np.bool_] | None = None,
     connectivity: int = 4,
-    transform: tuple[float, ...] | None = None,
+    transform: TransformLike = None,
+    nodata: float | None = None,
 ) -> pyarrow.Table:
     """Extract polygon shapes as a PyArrow Table with WKB geometry.
 
@@ -53,8 +63,12 @@ def shapes_arrow(
         2D boolean array. True = include pixel, False = exclude.
     connectivity : int, optional
         Pixel neighborhood connectivity, 4 or 8. Default is 4.
-    transform : tuple[float, ...], optional
-        Affine transform as (a, b, c, d, e, f). Default is identity.
+    transform : affine.Affine or tuple[float, ...], optional
+        Affine transform as an ``affine.Affine`` instance or a 6-tuple
+        ``(a, b, c, d, e, f)``. Default is identity.
+    nodata : int or float, optional
+        Pixels equal to this value are excluded. Pass ``np.nan`` to exclude
+        NaN pixels.
 
     Returns
     -------
@@ -67,7 +81,8 @@ def contours(
     source: NDArray,
     thresholds: list[float],
     mask: NDArray[np.bool_] | None = None,
-    transform: tuple[float, ...] | None = None,
+    transform: TransformLike = None,
+    nodata: float | None = None,
 ) -> list[tuple[dict, float]]:
     """Generate filled contour (isoband) polygons from a continuous raster.
 
@@ -83,13 +98,17 @@ def contours(
         At least 2 thresholds required.
     mask : NDArray[np.bool_], optional
         2D boolean array. True = include pixel, False = exclude.
-    transform : tuple[float, ...], optional
-        Affine transform as (a, b, c, d, e, f). Default is identity.
+    transform : affine.Affine or tuple[float, ...], optional
+        Affine transform as an ``affine.Affine`` instance or a 6-tuple
+        ``(a, b, c, d, e, f)``. Default is identity.
+    nodata : int or float, optional
+        Pixels equal to this value are excluded. Pass ``np.nan`` to exclude
+        NaN pixels.
 
     Returns
     -------
     list[tuple[dict, float]]
-        List of (GeoJSON geometry dict, band lower threshold) tuples.
+        Eager list of (GeoJSON geometry dict, band lower threshold) tuples.
     """
     ...
 
@@ -97,7 +116,8 @@ def contours_arrow(
     source: NDArray,
     thresholds: list[float],
     mask: NDArray[np.bool_] | None = None,
-    transform: tuple[float, ...] | None = None,
+    transform: TransformLike = None,
+    nodata: float | None = None,
 ) -> pyarrow.Table:
     """Generate filled contour polygons as a PyArrow Table with WKB geometry.
 
@@ -113,8 +133,12 @@ def contours_arrow(
         At least 2 thresholds required.
     mask : NDArray[np.bool_], optional
         2D boolean array. True = include pixel, False = exclude.
-    transform : tuple[float, ...], optional
-        Affine transform as (a, b, c, d, e, f). Default is identity.
+    transform : affine.Affine or tuple[float, ...], optional
+        Affine transform as an ``affine.Affine`` instance or a 6-tuple
+        ``(a, b, c, d, e, f)``. Default is identity.
+    nodata : int or float, optional
+        Pixels equal to this value are excluded. Pass ``np.nan`` to exclude
+        NaN pixels.
 
     Returns
     -------
