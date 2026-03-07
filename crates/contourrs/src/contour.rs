@@ -204,10 +204,22 @@ pub fn contours<T: RasterValue>(
 // Edge segment with absolute coordinates
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum VertexKey {
+    Horizontal { col: i32, row: i32 },
+    Vertical { col: i32, row: i32 },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EdgeVertex {
+    key: VertexKey,
+    coord: Coord<f64>,
+}
+
 #[derive(Debug, Clone)]
 struct EdgeSegment {
-    start: Coord<f64>,
-    end: Coord<f64>,
+    start: EdgeVertex,
+    end: EdgeVertex,
 }
 
 // ---------------------------------------------------------------------------
@@ -279,21 +291,33 @@ fn march_row(
         let cy = row as f64;
 
         // Edge crossing points
-        let top = || Coord {
-            x: cx + interp(tl, tr, threshold),
-            y: cy,
+        let top = || EdgeVertex {
+            key: VertexKey::Horizontal { col, row },
+            coord: Coord {
+                x: cx + interp(tl, tr, threshold),
+                y: cy,
+            },
         };
-        let right = || Coord {
-            x: cx + 1.0,
-            y: cy + interp(tr, br, threshold),
+        let right = || EdgeVertex {
+            key: VertexKey::Vertical { col: col + 1, row },
+            coord: Coord {
+                x: cx + 1.0,
+                y: cy + interp(tr, br, threshold),
+            },
         };
-        let bottom = || Coord {
-            x: cx + 1.0 - interp(br, bl, threshold),
-            y: cy + 1.0,
+        let bottom = || EdgeVertex {
+            key: VertexKey::Horizontal { col, row: row + 1 },
+            coord: Coord {
+                x: cx + 1.0 - interp(br, bl, threshold),
+                y: cy + 1.0,
+            },
         };
-        let left = || Coord {
-            x: cx,
-            y: cy + 1.0 - interp(bl, tl, threshold),
+        let left = || EdgeVertex {
+            key: VertexKey::Vertical { col, row },
+            coord: Coord {
+                x: cx,
+                y: cy + 1.0 - interp(bl, tl, threshold),
+            },
         };
 
         // Standard 16-case table. Convention: inside (val >= t) is to the
@@ -467,26 +491,16 @@ fn interp(v0: f64, v1: f64, threshold: f64) -> f64 {
 // Segment chaining: connect segments into closed rings
 // ---------------------------------------------------------------------------
 
-type PointKey = (i64, i64);
-
-#[inline]
-fn quantize(c: &Coord<f64>) -> PointKey {
-    ((c.x * 1e10).round() as i64, (c.y * 1e10).round() as i64)
-}
-
 fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
     if segments.is_empty() {
         return Vec::new();
     }
 
     // Build adjacency: start endpoint → segment index
-    let mut endpoint_map: FxHashMap<PointKey, Vec<usize>> =
+    let mut endpoint_map: FxHashMap<VertexKey, Vec<usize>> =
         FxHashMap::with_capacity_and_hasher(segments.len(), Default::default());
     for (i, seg) in segments.iter().enumerate() {
-        endpoint_map
-            .entry(quantize(&seg.start))
-            .or_default()
-            .push(i);
+        endpoint_map.entry(seg.start.key).or_default().push(i);
     }
 
     let mut used = vec![false; segments.len()];
@@ -499,13 +513,12 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
 
         let mut coords = Vec::with_capacity(8);
         used[start_idx] = true;
-        coords.push(segments[start_idx].start);
-        coords.push(segments[start_idx].end);
+        coords.push(segments[start_idx].start.coord);
+        coords.push(segments[start_idx].end.coord);
+        let start_key = segments[start_idx].start.key;
+        let mut end_key = segments[start_idx].end.key;
 
         loop {
-            let end_key = quantize(coords.last().unwrap());
-            let start_key = quantize(&coords[0]);
-
             // Check if ring is closed
             if coords.len() > 2 && end_key == start_key {
                 *coords.last_mut().unwrap() = coords[0];
@@ -520,19 +533,17 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
             match next {
                 Some(idx) => {
                     used[idx] = true;
-                    coords.push(segments[idx].end);
+                    coords.push(segments[idx].end.coord);
+                    end_key = segments[idx].end.key;
                 }
                 None => break, // Can't close — discard
             }
         }
 
-        if coords.len() >= 4 {
+        if coords.len() >= 4 && end_key == start_key {
             let first = coords[0];
-            let last = *coords.last().unwrap();
-            if quantize(&first) == quantize(&last) {
-                *coords.last_mut().unwrap() = first;
-                rings.push(LineString(coords));
-            }
+            *coords.last_mut().unwrap() = first;
+            rings.push(LineString(coords));
         }
     }
 
@@ -1010,5 +1021,55 @@ mod tests {
             AffineTransform::identity(),
         );
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_chain_segments_uses_exact_topology_keys() {
+        let segments = vec![
+            EdgeSegment {
+                start: EdgeVertex {
+                    key: VertexKey::Horizontal { col: 0, row: 0 },
+                    coord: Coord { x: 0.1, y: 0.0 },
+                },
+                end: EdgeVertex {
+                    key: VertexKey::Vertical { col: 1, row: 0 },
+                    coord: Coord { x: 1.0, y: 0.1 },
+                },
+            },
+            EdgeSegment {
+                start: EdgeVertex {
+                    key: VertexKey::Vertical { col: 1, row: 0 },
+                    coord: Coord { x: 1.0, y: 0.1 },
+                },
+                end: EdgeVertex {
+                    key: VertexKey::Horizontal { col: 0, row: 1 },
+                    coord: Coord { x: 0.9, y: 1.0 },
+                },
+            },
+            EdgeSegment {
+                start: EdgeVertex {
+                    key: VertexKey::Horizontal { col: 0, row: 1 },
+                    coord: Coord { x: 0.9, y: 1.0 },
+                },
+                end: EdgeVertex {
+                    key: VertexKey::Vertical { col: 0, row: 0 },
+                    coord: Coord { x: 0.0, y: 0.9 },
+                },
+            },
+            EdgeSegment {
+                start: EdgeVertex {
+                    key: VertexKey::Vertical { col: 0, row: 0 },
+                    coord: Coord { x: 0.0, y: 0.9 },
+                },
+                end: EdgeVertex {
+                    key: VertexKey::Horizontal { col: 0, row: 0 },
+                    coord: Coord { x: 0.1, y: 0.0 },
+                },
+            },
+        ];
+
+        let rings = chain_segments(&segments);
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].0.first(), rings[0].0.last());
     }
 }
