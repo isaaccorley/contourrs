@@ -1,6 +1,10 @@
 name: Integration Notebooks
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -11,20 +15,29 @@ jobs:
     name: Run integration notebooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.8.2
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7.3.1
 
       - name: Build and install
         run: uv run --python 3.13 --extra all --with maturin maturin develop --release
 
-      - name: Run notebooks
+      - name: Execute and convert notebooks
         run: |
-          for nb in examples/*.ipynb; do
-            echo "Running $nb"
-            uv run --python 3.13 --extra all jupyter nbconvert --to script --stdout "$nb" | uv run --python 3.13 --extra all python
+          mkdir -p /tmp/tutorial-notebooks
+
+          for nb in examples/quickstart.ipynb examples/dem_contour.ipynb examples/cdl_tiled_polygonize.ipynb; do
+            echo "Executing + converting $nb"
+            uv run --python 3.13 --extra all jupyter nbconvert \
+              --to markdown \
+              --execute \
+              --ExecutePreprocessor.timeout=1200 \
+              --TagRemovePreprocessor.enabled=True \
+              --TagRemovePreprocessor.remove_cell_tags='["skip_ci"]' \
+              --output-dir /tmp/tutorial-notebooks \
+              "$nb"
           done

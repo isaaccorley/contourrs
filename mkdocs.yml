@@ -50,4 +50,9 @@ nav:
   - Performance: performance.md
   - Architecture: architecture.md
   - Limitations vs GDAL: limitations.md
-  - Examples: examples.md
+  - Examples:
+      - Overview: examples.md
+      - Quickstart: tutorials/quickstart.md
+      - DEM Contours: tutorials/dem_contour.md
+      - Tiled CDL Polygonization: tutorials/cdl_tiled_polygonize.md
+      - TorchGeo FTW Polygonize: tutorials/torchgeo_ftw_polygonize.md
