@@ -8,11 +8,9 @@ description = "Pure Rust raster polygonization — contourrs core"
 [features]
 default = []
 arrow = ["dep:arrow"]
-cuda = ["dep:cudarc"]
 
 [dependencies]
 arrow = { version = "54", optional = true, default-features = false, features = ["ffi"] }
-cudarc = { version = "0.12", optional = true }
 geo-types = "0.7"
 num-traits = "0.2"
 rayon = "1.10"

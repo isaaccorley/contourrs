@@ -7,8 +7,6 @@
 pub mod arrow;
 pub mod connectivity;
 pub mod contour;
-#[cfg(feature = "cuda")]
-pub mod cuda;
 pub mod geometry;
 pub mod label;
 pub mod polygon;
