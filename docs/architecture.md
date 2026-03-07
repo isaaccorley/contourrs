@@ -57,10 +57,3 @@ Two-isoline marching squares decomposition:
 | Flag | Default | Description |
 |---|---|---|
 | `arrow` | off (on in Python bindings) | Arrow RecordBatch export with WKB geometry + GeoParquet metadata |
-| `cuda` | off | Experimental GPU connected-component labeling path for the Rust crate only |
-
-## CUDA support (experimental)
-
-Current pipeline: accept GPU pointer -> run CCL kernel on device -> transfer u32 label grid to CPU -> boundary tracing on CPU.
-
-This path exists behind the `cuda` feature in the Rust crate, but it is not exposed in the Python package and should be treated as experimental rather than production-ready.
