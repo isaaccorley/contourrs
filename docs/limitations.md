@@ -25,13 +25,13 @@ contourrs reimplements GDAL's polygonize algorithm in pure Rust but is not a ful
 - **In-memory ML/CV pipelines** where speed matters and the raster is already a numpy array
 - **Arrow/GeoParquet-first workflows** — zero-copy handoff to PyArrow with low Python-heap allocation; total native/process memory is still meaningful
 - **Environments where installing GDAL is painful** — contourrs is a single `pip install` with no system dependencies
-- **Isoband contouring** — GDAL's `gdal_contour` produces isolines (lines), not filled isobands (polygons)
+- **Isoband contouring from arrays** — `contourrs` exposes filled isobands directly from in-memory arrays; GDAL's `gdal_contour` CLI is centered on isolines rather than this API shape
 
 ## What's the same
 
 Both GDAL and contourrs:
 
-- Use connected-component labeling + boundary tracing (same algorithmic approach)
+- Use connected-component labeling + boundary tracing (same general algorithmic approach)
 - Support 4- and 8-connectivity
 - Use exact equality for pixel value grouping (no tolerance-based merging)
-- Produce identical polygon output for discrete rasters (validated in [integration tests](https://github.com/isaaccorley/contourrs/blob/main/tests/test_compare_rasterio.py))
+- Match rasterio/GDAL on the discrete polygonize cases covered by our [integration tests](https://github.com/isaaccorley/contourrs/blob/main/tests/test_compare_rasterio.py)

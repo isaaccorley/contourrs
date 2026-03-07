@@ -9,7 +9,7 @@ contourrs-python    PyO3/maturin Python bindings
 
 ## Polygonize pipeline
 
-Two-pass algorithm mirroring GDAL's `GDALPolygonize`:
+Two-pass algorithm in the same family as GDAL's `GDALPolygonize`:
 
 ### Pass 1 — Region labeling
 
@@ -17,7 +17,7 @@ Connected-component labeling via union-find with path compression. Supports 4- a
 
 ### Pass 2 — Boundary tracing
 
-Direct contour tracing with turn-priority logic. Classifies exterior rings (CCW) and holes (CW). Applies affine transform to output coordinates.
+Boundary tracing over labeled regions, followed by ring normalization and affine transform application on output coordinates.
 
 ## Contours pipeline
 
@@ -38,7 +38,7 @@ Two-isoline marching squares decomposition:
 | **BBox spatial indexing** | MEDIUM | Exterior bounding boxes pre-computed; holes skip expensive `point_in_ring` ray-cast when outside bbox |
 | **BBox pre-check in `point_in_ring`** | MEDIUM | Min/max bbox scan before O(n) ray-cast. Early return if point outside ring bounds |
 | **Bulk WKB coordinate writes** | MEDIUM | On little-endian targets, `&[Coord<f64>]` reinterpreted as bytes for single `extend_from_slice` per ring |
-| **Zero-copy f64 raster path** | MEDIUM | When `T` is already `f64`, `Cow::Borrowed` avoids allocating a conversion buffer |
+| **Borrowed f64 raster path** | MEDIUM | When contour input is already `f64`, `Cow::Borrowed` avoids allocating a conversion buffer |
 
 ### Micro-optimizations
 
@@ -57,10 +57,3 @@ Two-isoline marching squares decomposition:
 | Flag | Default | Description |
 |---|---|---|
 | `arrow` | off (on in Python bindings) | Arrow RecordBatch export with WKB geometry + GeoParquet metadata |
-| `cuda` | off | GPU-accelerated connected-component labeling (scaffolded, not yet compiled) |
-
-## CUDA support (scaffolded)
-
-Pipeline: accept GPU pointer -> run CCL kernel on device -> transfer u32 label grid to CPU (4x smaller than f32 input) -> boundary tracing on CPU.
-
-The boundary tracing pass is inherently serial, so only Pass 1 (connected-component labeling) benefits from GPU acceleration.
