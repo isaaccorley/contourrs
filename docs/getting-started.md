@@ -85,3 +85,25 @@ table = shapes_arrow(raster, connectivity=4)
 import pyarrow.parquet as pq
 pq.write_table(table, "output.parquet")
 ```
+
+### Excluding nodata values
+
+If your array uses a sentinel nodata value, pass it directly:
+
+```python
+from contourrs import shapes
+
+polygons = shapes(raster, nodata=0, connectivity=4)
+```
+
+### Using an `Affine` transform
+
+You can pass an `affine.Affine` directly without converting it to a tuple:
+
+```python
+from affine import Affine
+from contourrs import shapes
+
+transform = Affine(10.0, 0.0, 500000.0, 0.0, -10.0, 4500000.0)
+polygons = shapes(raster, transform=transform)
+```

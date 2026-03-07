@@ -65,6 +65,23 @@ dem = np.random.default_rng(42).random((256, 256)).astype(np.float32)
 gdf = gpd.GeoDataFrame.from_arrow(contours_arrow(dem, thresholds=[0.25, 0.5, 0.75]))
 ```
 
+### Using `nodata`
+
+Exclude pixels with a known nodata value without building a mask manually:
+
+```python
+import numpy as np
+from contourrs import shapes
+
+raster = np.array([
+    [0, 1, 1],
+    [0, 2, 2],
+    [3, 3, 3],
+], dtype=np.uint8)
+
+results = shapes(raster, nodata=0, connectivity=4)
+```
+
 ### Using a mask
 
 Exclude pixels from processing (e.g. nodata regions):
@@ -94,8 +111,10 @@ from contourrs import shapes, contours
 raster = np.random.randint(0, 5, (256, 256), dtype=np.uint8)
 dem = np.random.default_rng(42).random((256, 256)).astype(np.float32)
 
-# (a, b, c, d, e, f) — 10m pixel, UTM origin
-transform = (10.0, 0.0, 500000.0, 0.0, -10.0, 4500000.0)
+from affine import Affine
+
+# 10m pixel, UTM origin
+transform = Affine(10.0, 0.0, 500000.0, 0.0, -10.0, 4500000.0)
 
 results = shapes(raster, connectivity=8, transform=transform)
 results = contours(dem, thresholds=[0.25, 0.5, 0.75], transform=transform)

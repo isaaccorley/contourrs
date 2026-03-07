@@ -9,7 +9,8 @@ def shapes(
     source: NDArray,
     mask: NDArray[np.bool_] | None = None,
     connectivity: int = 4,
-    transform: tuple[float, ...] | None = None,
+    transform: Affine | tuple[float, ...] | None = None,
+    nodata: int | float | None = None,
 ) -> list[tuple[dict, float]]
 ```
 
@@ -22,7 +23,8 @@ Extract polygon shapes from a raster array.
 | `source` | `NDArray` | *required* | 2D numpy array (uint8/16/32, int16/32, float32/64) |
 | `mask` | `NDArray[np.bool_]` | `None` | 2D boolean array. `True` = include pixel |
 | `connectivity` | `int` | `4` | Pixel neighborhood: `4` or `8` |
-| `transform` | `tuple[float, ...]` | `None` | Affine transform as `(a, b, c, d, e, f)` |
+| `transform` | `Affine \| tuple[float, ...]` | `None` | `affine.Affine` or `(a, b, c, d, e, f)` |
+| `nodata` | `int \| float` | `None` | Exclude pixels equal to this value; `np.nan` excludes NaNs |
 
 **Returns:** `list[tuple[dict, float]]` — GeoJSON geometry dicts paired with pixel values. Returns an eager list; `rasterio.features.shapes` returns an iterator.
 
@@ -48,7 +50,8 @@ def shapes_arrow(
     source: NDArray,
     mask: NDArray[np.bool_] | None = None,
     connectivity: int = 4,
-    transform: tuple[float, ...] | None = None,
+    transform: Affine | tuple[float, ...] | None = None,
+    nodata: int | float | None = None,
 ) -> pyarrow.Table
 ```
 
@@ -84,7 +87,8 @@ def contours(
     source: NDArray,
     thresholds: list[float],
     mask: NDArray[np.bool_] | None = None,
-    transform: tuple[float, ...] | None = None,
+    transform: Affine | tuple[float, ...] | None = None,
+    nodata: int | float | None = None,
 ) -> list[tuple[dict, float]]
 ```
 
@@ -99,7 +103,8 @@ Uses marching squares to produce polygons between consecutive threshold pairs. R
 | `source` | `NDArray` | *required* | 2D numpy array (uint8/16/32, int16/32, float32/64) |
 | `thresholds` | `list[float]` | *required* | Break values; bands formed from consecutive pairs (min 2) |
 | `mask` | `NDArray[np.bool_]` | `None` | 2D boolean array. `True` = include pixel |
-| `transform` | `tuple[float, ...]` | `None` | Affine transform as `(a, b, c, d, e, f)` |
+| `transform` | `Affine \| tuple[float, ...]` | `None` | `affine.Affine` or `(a, b, c, d, e, f)` |
+| `nodata` | `int \| float` | `None` | Exclude pixels equal to this value; `np.nan` excludes NaNs |
 
 **Returns:** `list[tuple[dict, float]]` — GeoJSON geometry dicts paired with the lower threshold of each band.
 
@@ -124,7 +129,8 @@ def contours_arrow(
     source: NDArray,
     thresholds: list[float],
     mask: NDArray[np.bool_] | None = None,
-    transform: tuple[float, ...] | None = None,
+    transform: Affine | tuple[float, ...] | None = None,
+    nodata: int | float | None = None,
 ) -> pyarrow.Table
 ```
 
@@ -168,9 +174,16 @@ All functions accept the following input types. All output coordinates are `f64`
 | `float32` | `np.float32` | Promoted to f64 |
 | `float64` | `np.float64` | Native (zero-copy in contours) |
 
+## Mask and nodata semantics
+
+- `mask` uses rasterio-style semantics: `True` includes a pixel, `False` excludes it
+- `nodata=` is optional sugar for building that exclusion mask from the source array
+- If both `mask` and `nodata` are passed, the effective mask is `mask & (source != nodata)`
+- `nodata=np.nan` excludes NaN pixels
+
 ## Affine transform
 
-The `transform` parameter is a 6-element tuple `(a, b, c, d, e, f)` representing the affine transformation:
+The `transform` parameter accepts either an `affine.Affine` instance or a 6-element tuple `(a, b, c, d, e, f)` representing the affine transformation:
 
 ```
 x' = a * col + b * row + c
