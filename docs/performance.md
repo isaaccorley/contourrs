@@ -38,6 +38,9 @@ All benchmarks on Apple M-series, release build, median of 5 runs after 2 warmup
 
 Measured with `tracemalloc`.
 
+!!! warning
+    These numbers reflect Python-managed heap allocation only. They do **not** capture Rust heap allocations, Arrow/native buffers, or total process RSS. `shapes_arrow()` minimizes Python object construction; it does not imply near-zero total memory use.
+
 | Grid | `shapes()` | `shapes_arrow()` | rasterio | Arrow reduction |
 |---|---|---|---|---|
 | 64x64 | 2.7MB | 2.9MB | 2.6MB | ~0% |
@@ -46,7 +49,7 @@ Measured with `tracemalloc`.
 | 1024x1024 | 665MB | <0.1MB | 637MB | **~100%** |
 | 2048x2048 | 2.66GB | <0.1MB | 2.55GB | **~100%** |
 
-`shapes_arrow()` achieves near-zero Python-side allocation because all computation happens in Rust and the Arrow C Data Interface transfers ownership without copying.
+`shapes_arrow()` achieves near-zero Python-side allocation because all computation happens in Rust and the Arrow C Data Interface transfers ownership without copying. Treat this as a Python-heap result, not a total-memory result.
 
 ## Dtype performance
 

@@ -23,7 +23,7 @@ contourrs reimplements GDAL's polygonize algorithm in pure Rust but is not a ful
 ## When contourrs wins
 
 - **In-memory ML/CV pipelines** where speed matters and the raster is already a numpy array
-- **Arrow/GeoParquet-first workflows** — zero-copy output with <0.1MB Python-side allocation
+- **Arrow/GeoParquet-first workflows** — zero-copy handoff to PyArrow with low Python-heap allocation; total native/process memory is still meaningful
 - **Environments where installing GDAL is painful** — contourrs is a single `pip install` with no system dependencies
 - **Isoband contouring** — GDAL's `gdal_contour` produces isolines (lines), not filled isobands (polygons)
 
