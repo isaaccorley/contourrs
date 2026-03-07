@@ -49,7 +49,6 @@ nav:
   - API Reference: api.md
   - Performance: performance.md
   - Architecture: architecture.md
-  - Limitations vs GDAL: limitations.md
   - Examples:
       - Overview: examples.md
       - Quickstart: tutorials/quickstart.md

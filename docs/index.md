@@ -2,7 +2,7 @@
 
 **Fast raster polygonization and contouring in pure Rust with Python bindings.**
 
-Drop-in replacement for `rasterio.features.shapes` — no GDAL dependency.
+Built for `rasterio.features.shapes`-style NumPy workflows — no GDAL dependency.
 
 ## Install
 
@@ -49,7 +49,7 @@ Built for the **ML-to-GIS pipeline**: model inference output goes in, GeoJSON or
 - **Fast** — up to 7.5x faster than rasterio with Arrow output
 - **Zero-copy Arrow** — GeoParquet-ready tables via Arrow C Data Interface
 - **Low Python-heap overhead** — `shapes_arrow()` keeps Python-managed allocation near zero in our `tracemalloc` benchmark; total native/process memory is higher
-- **Drop-in compatible** — `shapes()` signature matches `rasterio.features.shapes`
+- **Rasterio-style API** — `shapes()` is close to `rasterio.features.shapes` for ndarray workflows
 - **Contours** — marching squares isobands with sub-pixel interpolation
 - **All dtypes** — uint8/16/32, int16/32, float32/64
 

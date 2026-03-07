@@ -1,7 +1,7 @@
 # contourrs
 
 Fast raster polygonization and contouring in pure Rust with Python bindings.
-Drop-in replacement for `rasterio.features.shapes` with no GDAL dependency.
+Built for `rasterio.features.shapes`-style NumPy workflows with no GDAL dependency.
 
 Full docs: https://isaac.earth/contourrs/
 
@@ -20,8 +20,8 @@ pip install contourrs
 ## Quick start
 
 ```python
-import geopandas as gpd
 import numpy as np
+import pyarrow.parquet as pq
 from contourrs import contours, shapes, shapes_arrow
 
 raster = np.array([[1, 1, 2], [1, 2, 2], [3, 3, 3]], dtype=np.uint8)
@@ -33,7 +33,7 @@ isobands = contours(dem, thresholds=[0.25, 0.5, 0.75])
 
 # Arrow/GeoParquet output
 table = shapes_arrow(raster, connectivity=4)
-gdf = gpd.GeoDataFrame.from_arrow(table)
+pq.write_table(table, "polygons.parquet")
 ```
 
 ## Real-world examples
@@ -53,6 +53,11 @@ uv run --extra all jupyter nbconvert --to notebook --execute --inplace examples/
 ## Development
 
 ```bash
+make install
+make test
+make check
+
+# or directly with uv
 git clone https://github.com/isaaccorley/contourrs.git
 cd contourrs
 uv sync --extra all

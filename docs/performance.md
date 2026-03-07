@@ -2,6 +2,21 @@
 
 Published numbers below were collected on `Linux x86_64`, `Intel i7-10700K`, release build, `Python 3.13.5`, and `NumPy 2.4.2`. Reproduce with [`scripts/benchmark.py`](https://github.com/isaaccorley/contourrs/blob/main/scripts/benchmark.py).
 
+## API differences vs `rasterio.features.shapes`
+
+These benchmarks compare `contourrs` to `rasterio.features.shapes`, which is the main public Python baseline for polygonization.
+
+| Feature | `rasterio.features.shapes` | `contourrs` |
+|---|---|---|
+| Input types | `ndarray`, raster band, or dataset-backed band tuple | `ndarray` only |
+| Output form | Iterator of `(geometry, value)` pairs | Eager `list[...]` via `shapes()` or `pyarrow.Table` via `shapes_arrow()` |
+| Nodata handling | Explicit `mask`; dataset/band workflows can also bring nodata metadata from the surrounding stack | Explicit `mask` or `nodata=` on ndarray inputs |
+| Dtypes | `int8`, `int16`, `int32`, `uint8`, `uint16`, `float32`, `float64` | `uint8`, `uint16`, `uint32`, `int16`, `int32`, `float32`, `float64` |
+| Transform input | `Affine` | `Affine` or 6-tuple `(a, b, c, d, e, f)` |
+| Arrow / GeoParquet-ready output | None | Built in via `shapes_arrow()` |
+
+If you already have a NumPy array in memory, this is the closest apples-to-apples comparison. If you need dataset IO, metadata propagation, or format conversion, the broader rasterio/GDAL stack still covers more ground.
+
 ## Methodology
 
 - **Timing** — median of 5 runs after 2 warmup runs (`3 + 1` for the real-world cases)
@@ -15,7 +30,7 @@ Published numbers below were collected on `Linux x86_64`, `Intel i7-10700K`, rel
 
 ## Polygonize timing — synthetic categorical raster
 
-`rasterio.features.shapes` is a thin wrapper around GDAL's `GDALPolygonize`, so this is the most direct public baseline for `shapes()` and `shapes_arrow()`.
+`rasterio.features.shapes` is the main public Python baseline for `shapes()` and `shapes_arrow()`. Internally it wraps GDAL's polygonize path, but the numbers here are intended as an apples-to-apples Python API comparison.
 
 | Grid | `shapes()` | `shapes_arrow()` | rasterio | `arrow()` vs `shapes()` | `arrow()` vs rasterio |
 |---|---|---|---|---|---|
