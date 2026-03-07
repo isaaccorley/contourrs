@@ -13,7 +13,7 @@ def test_shapes_uniform():
     assert len(result) == 1
     geom, val = result[0]
     assert val == 1.0
-    assert geom["type"] in ("Polygon", "MultiPolygon")
+    assert geom["type"] == "Polygon"
 
 
 def test_shapes_two_values():
@@ -139,7 +139,7 @@ def test_contours_basic():
     result = contours(data, thresholds=[0.25, 0.75])
     assert len(result) >= 1
     for geom, val in result:
-        assert geom["type"] in ("Polygon", "MultiPolygon")
+        assert geom["type"] == "Polygon"
         assert val == 0.25
 
 

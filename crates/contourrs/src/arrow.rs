@@ -8,13 +8,6 @@ use arrow::datatypes::{DataType, Field, Schema};
 use geo_types::Polygon;
 use std::sync::Arc;
 
-/// Encode a geo_types::Polygon as ISO WKB (little-endian).
-pub fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
-    let mut buf = Vec::new();
-    polygon_to_wkb_into(&mut buf, polygon);
-    buf
-}
-
 /// Append a polygon's WKB encoding to an existing buffer.
 ///
 /// Used for streaming WKB into a single contiguous buffer when building
@@ -146,6 +139,12 @@ pub fn polygons_to_record_batch(
 mod tests {
     use super::*;
     use geo_types::{Coord, LineString};
+
+    fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
+        let mut buf = Vec::new();
+        polygon_to_wkb_into(&mut buf, polygon);
+        buf
+    }
 
     #[test]
     fn test_wkb_roundtrip_simple() {

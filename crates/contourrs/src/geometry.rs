@@ -2,6 +2,52 @@
 
 use geo_types::{Coord, LineString};
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BBox {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+}
+
+impl BBox {
+    #[inline]
+    pub(crate) fn from_ring(ring: &LineString<f64>) -> Self {
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for c in &ring.0 {
+            if c.x < min_x {
+                min_x = c.x;
+            }
+            if c.x > max_x {
+                max_x = c.x;
+            }
+            if c.y < min_y {
+                min_y = c.y;
+            }
+            if c.y > max_y {
+                max_y = c.y;
+            }
+        }
+        Self {
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn contains_point(&self, point: &Coord<f64>) -> bool {
+        point.x >= self.min_x
+            && point.x <= self.max_x
+            && point.y >= self.min_y
+            && point.y <= self.max_y
+    }
+}
+
 /// Signed area of a ring (positive = CCW, negative = CW).
 #[inline]
 pub fn signed_area(ring: &LineString<f64>) -> f64 {
@@ -27,29 +73,20 @@ pub fn point_in_ring(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
         return false;
     }
 
-    // Bounding box pre-check
-    if n > 0 {
-        let mut min_x = f64::INFINITY;
-        let mut max_x = f64::NEG_INFINITY;
-        let mut min_y = f64::INFINITY;
-        let mut max_y = f64::NEG_INFINITY;
-        for c in coords {
-            if c.x < min_x {
-                min_x = c.x;
-            }
-            if c.x > max_x {
-                max_x = c.x;
-            }
-            if c.y < min_y {
-                min_y = c.y;
-            }
-            if c.y > max_y {
-                max_y = c.y;
-            }
-        }
-        if point.x < min_x || point.x > max_x || point.y < min_y || point.y > max_y {
-            return false;
-        }
+    if !BBox::from_ring(ring).contains_point(point) {
+        return false;
+    }
+
+    point_in_ring_prechecked_bbox(point, ring)
+}
+
+/// Ray-casting point-in-polygon test for callers that already checked the bbox.
+#[inline]
+pub(crate) fn point_in_ring_prechecked_bbox(point: &Coord<f64>, ring: &LineString<f64>) -> bool {
+    let coords = &ring.0;
+    let n = coords.len();
+    if n < 3 {
+        return false;
     }
 
     let mut inside = false;
@@ -142,5 +179,20 @@ mod tests {
     fn test_point_in_empty_ring_is_false() {
         let ring = LineString(vec![]);
         assert!(!point_in_ring(&Coord { x: 0.0, y: 0.0 }, &ring));
+    }
+
+    #[test]
+    fn test_point_in_ring_prechecked_bbox() {
+        let ring = LineString(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 2.0, y: 0.0 },
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 0.0, y: 2.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]);
+        let bbox = BBox::from_ring(&ring);
+        let point = Coord { x: 1.0, y: 1.0 };
+        assert!(bbox.contains_point(&point));
+        assert!(point_in_ring_prechecked_bbox(&point, &ring));
     }
 }

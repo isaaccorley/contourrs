@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use geo_types::{Coord, LineString, Polygon};
 use rayon::prelude::*;
 
-use crate::geometry::{point_in_ring, signed_area};
+use crate::geometry::{point_in_ring_prechecked_bbox, signed_area, BBox};
 use crate::polygon::normalize_polygon;
 use crate::raster::{RasterGrid, RasterValue};
 use crate::transform::AffineTransform;
@@ -74,6 +74,7 @@ pub fn contours<T: RasterValue>(
 
     // Hoist det computation — invariant across threshold pairs
     let det = transform.a * transform.e - transform.b * transform.d;
+    let identity_transform = transform.is_identity();
 
     // Cache hi_rings from previous iteration to reuse as lo_rings
     let mut cached_rings: Option<Vec<LineString<f64>>> = None;
@@ -107,7 +108,7 @@ pub fn contours<T: RasterValue>(
 
         // Lo-threshold rings bound {val >= lo}
         for ring in &lo_rings {
-            let ring = apply_transform(ring, &transform);
+            let ring = apply_transform(ring, &transform, identity_transform);
             let area = signed_area(&ring);
             if area.abs() < f64::EPSILON {
                 continue;
@@ -123,7 +124,7 @@ pub fn contours<T: RasterValue>(
 
         // Hi-threshold rings bound {val >= hi} — these punch holes in the isoband
         for ring in &hi_rings {
-            let ring = apply_transform(ring, &transform);
+            let ring = apply_transform(ring, &transform, identity_transform);
             let area = signed_area(&ring);
             if area.abs() < f64::EPSILON {
                 continue;
@@ -154,26 +155,42 @@ pub fn contours<T: RasterValue>(
                 result.push((normalize_polygon(poly), lo));
             }
         } else {
-            // Pre-compute hole areas + exterior bboxes for spatial filtering
-            let hole_areas: Vec<f64> = holes.iter().map(|h| signed_area(h).abs()).collect();
+            // Pre-compute exterior metadata + assign holes without cloning ring buffers.
+            let ext_areas: Vec<f64> = exteriors.iter().map(|ext| signed_area(ext).abs()).collect();
             let ext_bboxes: Vec<BBox> = exteriors.iter().map(BBox::from_ring).collect();
-            for (j, ext) in exteriors.iter().enumerate() {
-                let mut my_holes = Vec::new();
-                let mut my_hole_area = 0.0_f64;
-                for (i, hole) in holes.iter().enumerate() {
-                    if !hole.0.is_empty() {
-                        let hp = &hole.0[0];
-                        // Bbox pre-filter: skip expensive point_in_ring if outside bbox
-                        if ext_bboxes[j].contains_point(hp) && point_in_ring(hp, ext) {
-                            my_holes.push(hole.clone());
-                            my_hole_area += hole_areas[i];
-                        }
+            let hole_areas: Vec<f64> = holes.iter().map(|hole| signed_area(hole).abs()).collect();
+            let mut hole_slots: Vec<Option<LineString<f64>>> = holes.into_iter().map(Some).collect();
+            let mut hole_assignments: Vec<Vec<usize>> = vec![Vec::new(); exteriors.len()];
+
+            for (i, hole_slot) in hole_slots.iter().enumerate() {
+                let Some(hole) = hole_slot.as_ref() else {
+                    continue;
+                };
+                if hole.0.is_empty() {
+                    continue;
+                }
+                let hp = &hole.0[0];
+                for (j, ext) in exteriors.iter().enumerate() {
+                    if ext_bboxes[j].contains_point(hp) && point_in_ring_prechecked_bbox(hp, ext) {
+                        hole_assignments[j].push(i);
+                        break;
                     }
                 }
-                let ext_area = signed_area(ext).abs();
+            }
+
+            for (j, ext) in exteriors.into_iter().enumerate() {
+                let mut my_holes = Vec::with_capacity(hole_assignments[j].len());
+                let mut my_hole_area = 0.0_f64;
+                for hole_idx in hole_assignments[j].drain(..) {
+                    if let Some(hole) = hole_slots[hole_idx].take() {
+                        my_hole_area += hole_areas[hole_idx];
+                        my_holes.push(hole);
+                    }
+                }
+                let ext_area = ext_areas[j];
                 let net_area = ext_area - my_hole_area;
                 if net_area > f64::EPSILON {
-                    let poly = Polygon::new(ext.clone(), my_holes);
+                    let poly = Polygon::new(ext, my_holes);
                     result.push((normalize_polygon(poly), lo));
                 }
             }
@@ -191,52 +208,6 @@ pub fn contours<T: RasterValue>(
 struct EdgeSegment {
     start: Coord<f64>,
     end: Coord<f64>,
-}
-
-// ---------------------------------------------------------------------------
-// Bounding box for spatial indexing
-// ---------------------------------------------------------------------------
-
-struct BBox {
-    min_x: f64,
-    max_x: f64,
-    min_y: f64,
-    max_y: f64,
-}
-
-impl BBox {
-    #[inline]
-    fn from_ring(ring: &LineString<f64>) -> Self {
-        let mut min_x = f64::INFINITY;
-        let mut max_x = f64::NEG_INFINITY;
-        let mut min_y = f64::INFINITY;
-        let mut max_y = f64::NEG_INFINITY;
-        for c in &ring.0 {
-            if c.x < min_x {
-                min_x = c.x;
-            }
-            if c.x > max_x {
-                max_x = c.x;
-            }
-            if c.y < min_y {
-                min_y = c.y;
-            }
-            if c.y > max_y {
-                max_y = c.y;
-            }
-        }
-        Self {
-            min_x,
-            max_x,
-            min_y,
-            max_y,
-        }
-    }
-
-    #[inline]
-    fn contains_point(&self, p: &Coord<f64>) -> bool {
-        p.x >= self.min_x && p.x <= self.max_x && p.y >= self.min_y && p.y <= self.max_y
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -463,15 +434,13 @@ fn march_isoline(
     threshold: f64,
     mask: Option<&[bool]>,
 ) -> Vec<EdgeSegment> {
-    // Extended grid: from -1..h, -1..w so boundary pixels get border cells
-    let rows: Vec<i32> = (-1..h as i32).collect();
-
     if w * h >= PARALLEL_THRESHOLD {
-        rows.into_par_iter()
+        (-1..h as i32)
+            .into_par_iter()
             .flat_map_iter(|row| march_row(data, w, h, row, threshold, mask))
             .collect()
     } else {
-        rows.into_iter()
+        (-1..h as i32)
             .flat_map(|row| march_row(data, w, h, row, threshold, mask))
             .collect()
     }
@@ -575,7 +544,15 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
 // ---------------------------------------------------------------------------
 
 #[inline]
-fn apply_transform(ring: &LineString<f64>, transform: &AffineTransform) -> LineString<f64> {
+fn apply_transform(
+    ring: &LineString<f64>,
+    transform: &AffineTransform,
+    identity_transform: bool,
+) -> LineString<f64> {
+    if identity_transform {
+        return ring.clone();
+    }
+
     LineString(
         ring.0
             .iter()

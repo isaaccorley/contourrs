@@ -184,33 +184,3 @@ def test_larger_grid():
     rio = list(rio_shapes(data, connectivity=4))
     compare_results(rust, rio)
     print("  PASS: larger grid (32x32)")
-
-
-if __name__ == "__main__":
-    tests = [
-        test_uniform_grid,
-        test_two_values,
-        test_checkerboard,
-        test_checkerboard_8conn,
-        test_single_pixel,
-        test_with_mask,
-        test_all_masked,
-        test_with_transform,
-        test_hole,
-        test_float32,
-        test_random_mask,
-        test_larger_grid,
-    ]
-    print(f"Running {len(tests)} comparison tests...")
-    passed = 0
-    failed = 0
-    for test in tests:
-        try:
-            test()
-            passed += 1
-        except Exception as e:
-            print(f"  FAIL: {test.__name__}: {e}")
-            failed += 1
-    print(f"\n{passed}/{passed + failed} passed")
-    if failed > 0:
-        exit(1)

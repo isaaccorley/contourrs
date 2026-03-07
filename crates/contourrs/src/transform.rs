@@ -35,6 +35,16 @@ impl AffineTransform {
         Self { a, b, c, d, e, f }
     }
 
+    #[inline]
+    pub fn is_identity(&self) -> bool {
+        self.a == 1.0
+            && self.b == 0.0
+            && self.c == 0.0
+            && self.d == 0.0
+            && self.e == 1.0
+            && self.f == 0.0
+    }
+
     /// Transform pixel coordinate to georeferenced coordinate.
     #[inline]
     pub fn apply(&self, col: f64, row: f64) -> (f64, f64) {

@@ -45,29 +45,8 @@ pub fn polygonize<T: RasterValue>(
     // Pass 1: Label connected regions
     let label_result = label::label_regions(grid, mask, connectivity);
 
-    // Build value lookup: label -> f64 value
-    // Find max label to size the lookup table
-    let max_label = label_result
-        .labels
-        .iter()
-        .filter(|&&l| l != u32::MAX)
-        .max()
-        .copied()
-        .unwrap_or(0);
-
-    let mut values = vec![0.0f64; max_label as usize + 1];
-    for row in 0..grid.height {
-        for col in 0..grid.width {
-            let idx = row * grid.width + col;
-            let label = label_result.labels[idx];
-            if label != u32::MAX {
-                values[label as usize] = grid.get(col, row).to_f64_value();
-            }
-        }
-    }
-
     // Pass 2: Trace boundaries and assemble polygons
-    let mut polygons = trace::trace_polygons(&label_result, &values, &transform);
+    let mut polygons = trace::trace_polygons(&label_result, &transform);
 
     // Normalize ring orientations (exterior CCW, holes CW)
     polygons = polygons
