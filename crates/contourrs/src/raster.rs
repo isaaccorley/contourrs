@@ -1,7 +1,5 @@
-use num_traits::{NumCast, ToPrimitive};
-
 /// Trait for raster cell values that can be polygonized.
-pub trait RasterValue: Copy + PartialEq + Send + Sync + ToPrimitive + NumCast + 'static {
+pub trait RasterValue: Copy + PartialEq + Send + Sync + 'static {
     fn to_f64_value(self) -> f64;
 }
 

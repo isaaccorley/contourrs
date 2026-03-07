@@ -305,7 +305,6 @@ dependencies = [
  "arrow",
  "geo",
  "geo-types",
- "num-traits",
  "rayon",
  "rustc-hash",
 ]

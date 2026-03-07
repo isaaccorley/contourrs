@@ -56,7 +56,7 @@ for geojson, value in shapes(raster, connectivity=4):
     print(f"value={value}, type={geojson['type']}")
 ```
 
-Each `geojson` is a standard GeoJSON geometry dict (Polygon or MultiPolygon). The `value` is the pixel value for that region.
+Each `geojson` is a standard GeoJSON `Polygon` geometry dict. The `value` is the pixel value for that region.
 
 ### Contour a continuous raster
 

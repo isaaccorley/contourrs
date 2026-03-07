@@ -1,4 +1,4 @@
-use crate::geometry::{point_in_ring, signed_area};
+use crate::geometry::{point_in_ring_prechecked_bbox, signed_area, BBox};
 use crate::label::LabelResult;
 use crate::transform::AffineTransform;
 use geo_types::{Coord, LineString, Polygon};
@@ -41,7 +41,6 @@ fn get_label(labels: &[u32], w: usize, h: usize, col: i32, row: i32) -> u32 {
 /// Trace polygon boundaries from a label grid using direct contour tracing.
 pub fn trace_polygons(
     label_result: &LabelResult,
-    values: &[f64],
     transform: &AffineTransform,
 ) -> Vec<(Polygon<f64>, f64)> {
     let det = transform.a * transform.e - transform.b * transform.d;
@@ -162,7 +161,7 @@ pub fn trace_polygons(
         }
     }
 
-    build_polygons(rings, values, det)
+    build_polygons(rings, &label_result.values, det)
 }
 
 /// Trace a single closed ring contour.
@@ -286,30 +285,9 @@ fn build_polygons(
             result.push((Polygon::new(ext, holes), value));
         } else {
             // Multiple exteriors — bbox pre-filter + point_in_ring for hole assignment
-            let ext_bboxes: Vec<(f64, f64, f64, f64)> = exterior_idxs
+            let ext_bboxes: Vec<BBox> = exterior_idxs
                 .iter()
-                .map(|&idx| {
-                    let coords = &rings[idx].1 .0;
-                    let mut min_x = f64::INFINITY;
-                    let mut max_x = f64::NEG_INFINITY;
-                    let mut min_y = f64::INFINITY;
-                    let mut max_y = f64::NEG_INFINITY;
-                    for c in coords {
-                        if c.x < min_x {
-                            min_x = c.x;
-                        }
-                        if c.x > max_x {
-                            max_x = c.x;
-                        }
-                        if c.y < min_y {
-                            min_y = c.y;
-                        }
-                        if c.y > max_y {
-                            max_y = c.y;
-                        }
-                    }
-                    (min_x, max_x, min_y, max_y)
-                })
+                .map(|&idx| BBox::from_ring(&rings[idx].1))
                 .collect();
 
             // Assign holes to exteriors via point-in-ring with bbox pre-filter.
@@ -318,12 +296,8 @@ fn build_polygons(
             for &hole_idx in &hole_idxs {
                 let hp = &rings[hole_idx].1 .0[0];
                 for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
-                    let (min_x, max_x, min_y, max_y) = ext_bboxes[j];
-                    if hp.x >= min_x
-                        && hp.x <= max_x
-                        && hp.y >= min_y
-                        && hp.y <= max_y
-                        && point_in_ring(hp, &rings[ext_idx].1)
+                    if ext_bboxes[j].contains_point(hp)
+                        && point_in_ring_prechecked_bbox(hp, &rings[ext_idx].1)
                     {
                         ext_holes[j].push(std::mem::replace(
                             &mut rings[hole_idx].1,

@@ -68,3 +68,4 @@ dmypy.json
 # Distribution
 *.whl
 site/
+docs/tutorials/

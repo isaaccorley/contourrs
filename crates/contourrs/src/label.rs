@@ -6,6 +6,7 @@ use crate::union_find::UnionFind;
 pub struct LabelResult {
     /// Label grid — each pixel gets a region label (canonical root after resolve).
     pub labels: Vec<u32>,
+    pub values: Vec<f64>,
     pub width: usize,
     pub height: usize,
 }
@@ -103,15 +104,24 @@ pub fn label_regions<T: RasterValue>(
         }
     }
 
-    // Resolve all labels to canonical roots
-    for label in labels.iter_mut() {
+    // Resolve all labels to canonical roots and record one representative value
+    let mut values = vec![0.0f64; next_label as usize];
+    let mut seen = vec![false; next_label as usize];
+    for (idx, label) in labels.iter_mut().enumerate() {
         if *label != u32::MAX {
-            *label = uf.find(*label);
+            let root = uf.find(*label);
+            *label = root;
+            let root_idx = root as usize;
+            if !seen[root_idx] {
+                values[root_idx] = grid.data[idx].to_f64_value();
+                seen[root_idx] = true;
+            }
         }
     }
 
     LabelResult {
         labels,
+        values,
         width: w,
         height: h,
     }
