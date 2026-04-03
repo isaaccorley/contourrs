@@ -288,13 +288,15 @@ fn march_row(
             x: cx + 1.0,
             y: cy + interp(tr, br, threshold),
         };
+        // Use the same interpolation direction as top/right so that shared
+        // edges between adjacent cells produce bit-identical coordinates.
         let bottom = || Coord {
-            x: cx + 1.0 - interp(br, bl, threshold),
+            x: cx + interp(bl, br, threshold),
             y: cy + 1.0,
         };
         let left = || Coord {
             x: cx,
-            y: cy + 1.0 - interp(bl, tl, threshold),
+            y: cy + interp(tl, bl, threshold),
         };
 
         // Standard 16-case table. Convention: inside (val >= t) is to the
@@ -327,13 +329,18 @@ fn march_row(
             5 => {
                 let center = (tl + tr + br + bl) * 0.25;
                 if center >= threshold {
+                    // 1s connected (tr-bl). Two 0-islands: tl and br.
+                    // Ring around tl(0): enters from cell above through top,
+                    // exits to cell-left through left.
                     segments.push(EdgeSegment {
                         start: top(),
                         end: left(),
                     });
+                    // Ring around br(0): enters from cell below through bottom,
+                    // exits to cell-right through right.
                     segments.push(EdgeSegment {
-                        start: right(),
-                        end: bottom(),
+                        start: bottom(),
+                        end: right(),
                     });
                 } else {
                     segments.push(EdgeSegment {
