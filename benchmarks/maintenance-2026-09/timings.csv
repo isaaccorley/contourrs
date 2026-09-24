@@ -1,0 +1,17 @@
+version,case,size,median_ms,unused,polygons
+baseline,uniform,128,0.281,0.000,1
+current,uniform,128,0.151,0.000,1
+baseline,categorical,128,1.592,0.000,9892
+current,categorical,128,1.151,0.000,9892
+baseline,smooth,128,0.410,0.000,8
+current,smooth,128,0.680,0.000,9
+baseline,noise,128,9.117,0.000,2474
+current,noise,128,28.134,0.000,4988
+baseline,uniform,256,0.421,0.000,1
+current,uniform,256,0.445,0.000,1
+baseline,categorical,256,5.805,0.000,40118
+current,categorical,256,6.190,0.000,40118
+baseline,smooth,256,0.805,0.000,8
+current,smooth,256,1.223,0.000,9
+baseline,noise,256,84.705,0.000,9644
+current,noise,256,116.530,0.000,19254

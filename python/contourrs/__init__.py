@@ -1,7 +1,5 @@
 """contourrs — fast raster polygonization with Arrow export."""
 
-from __future__ import annotations
-
 import math
 from typing import Any, cast
 
@@ -31,15 +29,6 @@ def _resolve_source_and_mask(
         ~np.isnan(source_arr) if _is_nan_scalar(nodata) else source_arr != nodata
     )
     nodata_mask = np.asarray(nodata_mask, dtype=np.bool_)
-
-    # Replace nodata cells with a neutral value (0) so NaN/sentinel values don't
-    # corrupt comparisons inside the Rust algorithm.
-    if not nodata_mask.all():
-        source_arr = source_arr.copy()
-        if np.issubdtype(source_arr.dtype, np.floating):
-            source_arr[~nodata_mask] = 0.0
-        else:
-            source_arr[~nodata_mask] = 0
 
     if mask is None:
         return source_arr, nodata_mask

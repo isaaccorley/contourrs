@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.15.0,<2"]
 build-backend = "maturin"
 
 [project]
@@ -9,13 +9,21 @@ description = "Fast raster polygonization with Arrow export — pure Rust, zero 
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = ["numpy", "pyarrow"]
+dependencies = ["numpy>=2.5.3,<3", "pyarrow>=25.0.1,<26"]
 
 [project.optional-dependencies]
-test = ["rasterio", "shapely", "pytest"]
-examples = ["rasterio", "shapely", "matplotlib", "geopandas", "torchgeo", "ipykernel"]
-dev = ["rasterio", "shapely", "pytest", "maturin", "pre-commit", "ruff", "ty", "nbconvert", "ipykernel", "matplotlib", "geopandas"]
-all = ["rasterio", "shapely", "pytest", "maturin", "pre-commit", "ruff", "ty", "nbconvert", "ipykernel", "matplotlib", "geopandas", "torchgeo"]
+test = ["rasterio>=1.5.1,<2", "shapely>=2.1.2,<3", "pytest>=9.1.1,<10"]
+examples = ["contourrs[docs]", "torchgeo>=0.10.0,<0.11"]
+docs = [
+    "rasterio>=1.5.1,<2", "shapely>=2.1.2,<3", "matplotlib>=3.11.2,<4",
+    "geopandas>=1.1.4,<2", "ipykernel>=7.3.0,<8", "nbconvert>=7.17.1,<8",
+    "zensical>=0.0.65,<0.1",
+]
+dev = [
+    "contourrs[test,docs]", "maturin>=1.15.0,<2", "pre-commit>=4.6.2,<5",
+    "ruff>=0.16.8,<0.17", "ty>=0.0.84,<0.1", "pyrefly>=1.3.1,<2", "psutil>=7.2.2,<8",
+]
+all = ["contourrs[dev,examples]"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
@@ -25,11 +33,11 @@ module-name = "contourrs._contourrs"
 
 [tool.pytest.ini_options]
 markers = ["integration: requires rasterio + shapely"]
-addopts = "-m 'not integration' --ignore=tests/test_compare_rasterio.py"
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+    "CPY",     # no repository-wide copyright-header requirement
     "D",       # pydocstyle — too noisy for small project
     "ANN",     # type annotations — covered by ty
     "ERA",     # commented-out code
@@ -51,3 +59,11 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.ty.src]
+exclude = ["tests/", "examples/torchgeo_ftw_polygonize.ipynb"]
+
+[tool.pyrefly]
+search-path = ["python"]
+project-includes = ["python/**/*.py", "python/**/*.pyi"]
+python-version = "3.12"

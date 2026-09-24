@@ -8,6 +8,9 @@ on:
   pull_request_target:
     types: [opened, edited, synchronize]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -40,13 +43,13 @@ jobs:
     if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@v2.9.2
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -70,16 +73,31 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@v2.9.2
 
-      - uses: astral-sh/setup-uv@v7.3.1
+      - uses: astral-sh/setup-uv@v10.2.0
 
       - name: Build and install
-        run: uv run --python ${{ matrix.python-version }} --with maturin --with pytest maturin develop --release
+        run: uv sync --locked --python ${{ matrix.python-version }} --extra test
 
-      - name: Run unit tests
-        run: uv run --python ${{ matrix.python-version }} --with pytest pytest tests/ -v
+      - name: Run unit and integration tests
+        run: uv run --locked --python ${{ matrix.python-version }} --extra test pytest tests/ -v
+
+  python-lint:
+    name: Python lint and types
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --locked --python 3.12 --extra dev
+      - run: uv run --locked --extra dev ruff check .
+      - run: uv run --locked --extra dev ruff format --check .
+      - run: uv run --locked --extra dev ty check --exclude tests/
+      - run: uv run --locked --extra dev pyrefly check

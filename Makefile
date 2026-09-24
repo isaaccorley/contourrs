@@ -1,21 +1,21 @@
 .PHONY: install build test check docs clean
 
 install:
-	uv run pre-commit install
-	uv run maturin develop --release
+	uv run --locked --extra dev pre-commit install
+	uv run --locked --extra dev maturin develop --release
 
 build:
-	uv run maturin develop --release
+	uv run --locked --extra dev maturin develop --release
 
 test:
-	cargo test --workspace
-	uv run --extra dev pytest tests/ -v
+	cargo test --workspace --all-features
+	uv run --locked --extra test pytest tests/ -v
 
 check:
-	uv run pre-commit run --all-files
+	uv run --locked --extra dev pre-commit run --all-files
 
 docs:
-	uv run --with mkdocs --with mkdocs-material mkdocs serve --dev-addr 0.0.0.0:8000
+	uv run --locked --extra docs zensical serve --dev-addr 0.0.0.0:8000
 
 clean:
 	cargo clean

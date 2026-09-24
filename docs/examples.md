@@ -8,11 +8,14 @@
 import numpy as np
 from contourrs import shapes
 
-raster = np.array([
-    [1, 1, 2],
-    [1, 2, 2],
-    [3, 3, 3],
-], dtype=np.uint8)
+raster = np.array(
+    [
+        [1, 1, 2],
+        [1, 2, 2],
+        [3, 3, 3],
+    ],
+    dtype=np.uint8,
+)
 
 for geojson, value in shapes(raster, connectivity=4):
     print(f"value={value}, type={geojson['type']}")
@@ -32,7 +35,8 @@ for geojson, value in contours(dem, thresholds=[0.25, 0.5, 0.75]):
 
 ### Arrow output and GeoParquet
 
-Arrow variants return a `pyarrow.Table` with WKB geometry and GeoParquet metadata — write directly to parquet:
+Arrow variants return a `pyarrow.Table` with WKB geometry and GeoParquet metadata.
+Write the table directly to Parquet:
 
 ```python
 from contourrs import shapes_arrow, contours_arrow
@@ -51,7 +55,7 @@ pq.write_table(table, "contours.parquet")
 
 ### Convert to GeoPandas
 
-Both Arrow functions return tables with GeoParquet metadata, so GeoPandas reads them directly:
+Both Arrow functions attach GeoArrow WKB field metadata, which lets GeoPandas read the geometry column:
 
 ```python
 import geopandas as gpd
@@ -73,11 +77,14 @@ Exclude pixels with a known nodata value without building a mask manually:
 import numpy as np
 from contourrs import shapes
 
-raster = np.array([
-    [0, 1, 1],
-    [0, 2, 2],
-    [3, 3, 3],
-], dtype=np.uint8)
+raster = np.array(
+    [
+        [0, 1, 1],
+        [0, 2, 2],
+        [3, 3, 3],
+    ],
+    dtype=np.uint8,
+)
 
 results = shapes(raster, nodata=0, connectivity=4)
 ```
@@ -90,11 +97,14 @@ Exclude pixels from processing (e.g. nodata regions):
 import numpy as np
 from contourrs import shapes
 
-raster = np.array([
-    [0, 1, 1],
-    [0, 2, 2],
-    [3, 3, 3],
-], dtype=np.uint8)
+raster = np.array(
+    [
+        [0, 1, 1],
+        [0, 2, 2],
+        [3, 3, 3],
+    ],
+    dtype=np.uint8,
+)
 
 mask = raster != 0  # exclude nodata
 results = shapes(raster, mask=mask, connectivity=4)
@@ -128,11 +138,14 @@ Use 8-connectivity to merge diagonally-adjacent pixels:
 import numpy as np
 from contourrs import shapes
 
-raster = np.array([
-    [1, 0, 1],
-    [0, 1, 0],
-    [1, 0, 1],
-], dtype=np.uint8)
+raster = np.array(
+    [
+        [1, 0, 1],
+        [0, 1, 0],
+        [1, 0, 1],
+    ],
+    dtype=np.uint8,
+)
 
 # 4-connectivity: each "1" pixel is a separate region
 results_4 = shapes(raster, connectivity=4)
@@ -143,7 +156,7 @@ results_8 = shapes(raster, connectivity=8)
 
 ### Mask + transform + Arrow (full pipeline)
 
-Combine all features for a complete ML-to-GIS pipeline:
+Mask low-confidence pixels and transform the polygon coordinates before export:
 
 ```python
 import numpy as np
@@ -169,7 +182,9 @@ pq.write_table(table, "predictions.parquet")
 
 ## Tutorials
 
-Full walkthrough notebooks with visualizations. Each tutorial is rendered from an executed Jupyter notebook.
+The tutorials are generated from Jupyter notebooks.
+The quickstart, DEM, and CDL notebooks execute during the docs build, with cells tagged `skip_ci` removed.
+The TorchGeo tutorial is converted without execution because it requires model weights and imagery.
 
 | Tutorial | Description |
 |---|---|
@@ -179,3 +194,24 @@ Full walkthrough notebooks with visualizations. Each tutorial is rendered from a
 | [TorchGeo FTW Polygonize](tutorials/torchgeo_ftw_polygonize.md) | Run a segmentation model and polygonize field boundaries |
 
 All notebook source files live in [`examples/`](https://github.com/isaaccorley/contourrs/tree/main/examples).
+
+## Figure sources
+
+Run `uv run --extra dev python scripts/generate_readme_plots.py` to regenerate the synthetic overview figures.
+The script exports 5.5-inch PDF and SVG figures plus 300-dpi PNG previews to `assets/` and `docs/assets/`.
+It uses the same seeded four-class raster and three-Gaussian elevation field as the original examples; these are illustrations, not benchmark measurements.
+The continuous field and contour bands share one value scale, with each band colored at its midpoint.
+
+The real-data figures come from `examples/cdl_tiled_polygonize.py`, `examples/dem_contour.py`, and the TorchGeo notebook.
+The elevation-bin figure uses categorical polygonization after quantile binning; it is distinct from interpolated marching-squares isobands in the DEM notebook.
+
+With the cached example rasters available, regenerate the real-data figures with:
+
+```bash
+uv run --extra docs python examples/dem_contour.py
+uv run --extra docs python examples/cdl_tiled_polygonize.py --raster examples/data/cdl_2023_polk_512.tif --tile-size 128
+```
+
+The CDL comparison uses the raster's class color table when available.
+For crops without a color table, the generator assigns one display color per class and uses that mapping in both panels.
+Dense geometry layers are rasterized inside PDF/SVG exports; labels and axes remain vector.
