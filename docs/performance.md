@@ -1,6 +1,10 @@
 # Performance
 
-Published numbers below were collected on `Linux x86_64`, `Intel i7-10700K`, release build, `Python 3.13.5`, and `NumPy 2.4.2`. Reproduce with [`scripts/benchmark.py`](https://github.com/isaaccorley/contourrs/blob/main/scripts/benchmark.py).
+These historical measurements predate the current dependency and algorithm updates and have not been rerun for this revision.
+The numbers below were collected on `Linux x86_64`, `Intel i7-10700K`, release build, `Python 3.13.5`, and `NumPy 2.4.2`. Reproduce with [`scripts/benchmark.py`](https://github.com/isaaccorley/contourrs/blob/main/scripts/benchmark.py).
+
+For a new run, save measurements and environment versions with `uv run python scripts/benchmark.py --output results.json`.
+Use `--measure-process-rss` to include retained process RSS measurements.
 
 ## API differences vs `rasterio.features.shapes`
 
@@ -23,12 +27,12 @@ If you already have a NumPy array in memory, this is the closest apples-to-apple
 - **Synthetic polygonize** — random `uint8` raster with 5 categorical values; intentionally noisy, high-boundary workload
 - **Synthetic contours** — random `float32` raster with 5 thresholds; near worst-case for marching-squares ring count
 - **Python heap** — peak allocation from `tracemalloc`
-- **Process RSS delta** — fresh-subprocess RSS growth above a post-import, post-input-load baseline
+- **Retained process RSS delta** — fresh-subprocess RSS after the call, with its result retained, minus a post-import, post-input-load baseline; this is not peak RSS
 
 !!! warning
-    `tracemalloc` measures Python-managed heap only. It does **not** capture Rust heap allocations, Arrow/native buffers, or total process memory. `shapes_arrow()` and `contours_arrow()` dramatically reduce Python object construction, but they still allocate substantial native memory.
+    `tracemalloc` measures Python-managed heap only. It does **not** capture Rust heap allocations, Arrow/native buffers, or total process memory. `shapes_arrow()` and `contours_arrow()` reduce Python object construction, but they still allocate substantial native memory.
 
-## Polygonize timing — synthetic categorical raster
+## Polygonization of synthetic rasters
 
 `rasterio.features.shapes` is the main public Python baseline for `shapes()` and `shapes_arrow()`. Internally it wraps GDAL's polygonize path, but the numbers here are intended as an apples-to-apples Python API comparison.
 
@@ -41,9 +45,9 @@ If you already have a NumPy array in memory, this is the closest apples-to-apple
 | 1024x1024 | 1.50s | 377.4ms | 2.51s | **4.0x** | **6.7x** |
 | 2048x2048 | 6.17s | 1.63s | 9.97s | **3.8x** | **6.1x** |
 
-`shapes_arrow()` wins by avoiding Python GeoJSON dict/list construction and handing WKB buffers straight to PyArrow.
+`shapes_arrow()` avoids Python GeoJSON dict/list construction and passes WKB buffers to PyArrow.
 
-## Polygonize timing — real CDL raster
+## Polygonization of CDL
 
 512x512 crop of the 2023 USDA Cropland Data Layer for Polk County, Iowa.
 
@@ -53,7 +57,7 @@ If you already have a NumPy array in memory, this is the closest apples-to-apple
 
 On real land-cover data, `shapes_arrow()` is still about **4.4x** faster than `shapes()` and about **7.5x** faster than rasterio.
 
-## Contour timing — synthetic float32 raster
+## Contouring of synthetic rasters
 
 These are `contours()` vs `contours_arrow()` on random float32 data with 5 thresholds. This is intentionally harsh on isoband extraction because it maximizes tiny rings.
 
@@ -67,7 +71,7 @@ These are `contours()` vs `contours_arrow()` on random float32 data with 5 thres
 
 The contour path spends most of its time in marching squares and polygon assembly, so Arrow helps less than it does for categorical polygonization.
 
-## Contour timing — real DEM
+## Contouring of a DEM
 
 2048x2048 Mt. Rainier DEM with 250 m contour bands.
 
@@ -75,9 +79,9 @@ The contour path spends most of its time in marching squares and polygon assembl
 |---|---|---|---|
 | Mt. Rainier DEM 2048x2048 | 49.8ms | **47.7ms** | 186 |
 
-Real DEMs are much smoother than random noise, so contour extraction is dramatically faster than the synthetic worst case.
+Real DEMs are much smoother than random noise, so contour extraction is faster than the synthetic worst case.
 
-## Polygonize memory — Python heap vs process RSS
+## Polygonization memory
 
 ### Python heap peak (`tracemalloc`)
 
@@ -89,9 +93,9 @@ Real DEMs are much smoother than random noise, so contour extraction is dramatic
 | 1024x1024 | 665.1MB | <0.1MB | 637.1MB | **100%** |
 | 2048x2048 | 2.60GB | <0.1MB | 2.49GB | **100%** |
 
-This is the source of the earlier `<0.1MB` claim: Arrow output nearly eliminates Python-side object churn.
+The `<0.1MB` entries measure Python-managed allocations, not the native buffers that hold the Arrow output.
 
-### Process RSS delta (fresh subprocess)
+### Retained process RSS delta (fresh subprocess)
 
 | Grid | `shapes()` | `shapes_arrow()` | rasterio | `arrow()` reduction vs rasterio |
 |---|---|---|---|---|
@@ -101,9 +105,11 @@ This is the source of the earlier `<0.1MB` claim: Arrow output nearly eliminates
 | 1024x1024 | 1.39GB | 714.0MB | 1002.8MB | **29%** |
 | 2048x2048 | 5.58GB | 2.79GB | 3.90GB | **28%** |
 
-This is the more important caveat: `shapes_arrow()` is **not** near-zero total memory. It still needs large native allocations for labeling, polygon tracing, WKB serialization, and Arrow buffers. The win is real, but it is closer to **~28-29% lower process RSS than rasterio** on larger grids, not ~100%.
+`shapes_arrow()` allocates native memory for labeling, polygon tracing, WKB serialization, and Arrow buffers.
+Its retained process RSS is **~28-29% lower than rasterio** on the larger grids in this benchmark.
+These before-and-after measurements do not capture peak memory during the call.
 
-## Contour memory — Python heap vs process RSS
+## Contouring memory
 
 ### Python heap peak (`tracemalloc`)
 
@@ -115,7 +121,7 @@ This is the more important caveat: `shapes_arrow()` is **not** near-zero total m
 | 512x512 | 57.4MB | <0.1MB | **100%** |
 | 1024x1024 | 228.4MB | <0.1MB | **100%** |
 
-### Process RSS delta (fresh subprocess)
+### Retained process RSS delta (fresh subprocess)
 
 | Grid | `contours()` | `contours_arrow()` | `arrow()` reduction |
 |---|---|---|---|

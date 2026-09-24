@@ -22,6 +22,11 @@ macro_rules! extract_mask {
                 pyo3::exceptions::PyTypeError::new_err("mask must be a 2D bool array")
             })?;
             let mask_ro = mask_np.readonly();
+            if !mask_ro.is_c_contiguous() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "mask must be C-contiguous",
+                ));
+            }
             let src_shape: Vec<usize> = $source
                 .getattr("shape")
                 .and_then(|s| s.extract())
@@ -85,6 +90,11 @@ macro_rules! dispatch_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
+                if !arr.is_c_contiguous() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "source must be C-contiguous",
+                    ));
+                }
                 let data = arr.as_slice().map_err(|_| {
                     pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
                 })?;
@@ -111,6 +121,11 @@ macro_rules! dispatch_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
+                if !arr.is_c_contiguous() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "source must be C-contiguous",
+                    ));
+                }
                 let data = arr.as_slice().map_err(|_| {
                     pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
                 })?;
@@ -152,6 +167,11 @@ macro_rules! dispatch_contour_geojson {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
+                if !arr.is_c_contiguous() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "source must be C-contiguous",
+                    ));
+                }
                 let data = arr.as_slice().map_err(|_| {
                     pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
                 })?;
@@ -179,6 +199,11 @@ macro_rules! dispatch_contour_arrow {
                     .map_err(|_| pyo3::exceptions::PyTypeError::new_err(
                         format!("Cannot interpret source as {}", $name)))?;
                 let arr = arr.readonly();
+                if !arr.is_c_contiguous() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "source must be C-contiguous",
+                    ));
+                }
                 let data = arr.as_slice().map_err(|_| {
                     pyo3::exceptions::PyValueError::new_err("source must be C-contiguous")
                 })?;
@@ -360,7 +385,7 @@ fn polygons_to_arrow_table(
     let val_field = imported_schema.call_method1("field", ("value",))?;
 
     // GeoParquet schema-level metadata for compatibility
-    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
+    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","crs":null,"geometry_types":["Polygon"]}}}"#;
     let schema_meta = PyDict::new(py);
     schema_meta.set_item("geo", geo_meta)?;
 

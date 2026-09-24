@@ -1,97 +1,121 @@
-"""Generate plots for README.md."""
+"""Generate reproducible synthetic documentation figures at 5.5 inches wide."""
 
+from itertools import pairwise
 from pathlib import Path
 
 import geopandas as gpd
 import matplotlib
 import numpy as np
 from contourrs import contours_arrow, shapes_arrow
-from matplotlib.colors import ListedColormap
+from figstyle import COLORS, WARM, apply_style, export
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize
+from matplotlib.patches import Patch
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-OUTPUT_DIRS = (Path("assets"), Path("docs/assets"))
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_DIRS = (ROOT / "assets", ROOT / "docs/assets")
 
 
-def _save_figure(fig, name: str) -> None:
-    for output_dir in OUTPUT_DIRS:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / name
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-        print(f"Saved {output_path}")
+def save_figure(fig, name: str) -> None:
+    for directory in OUTPUT_DIRS:
+        export(fig, directory / name)
+        fig.savefig(directory / f"{name}.png", dpi=300)
+    plt.close(fig)
 
 
-def _align_to_raster_grid(ax, width: int, height: int) -> None:
-    ax.set_xlim(0, width)
-    ax.set_ylim(height, 0)
-    ax.set_aspect("equal")
+def spatial_axes(axes, width: int, height: int) -> None:
+    for ax in axes:
+        ax.set(xlim=(0, width), ylim=(height, 0), aspect="equal")
+        ax.set_axis_off()
 
 
-# ── Polygonize: raster vs vector ────────────────────────────────────────
+def polygonize_figure() -> None:
+    rng = np.random.default_rng(42)
+    raster = rng.integers(1, 5, size=(128, 128), dtype=np.uint8)
+    colors = [COLORS[key] for key in ("coral", "blue", "green", "ochre")]
+    cmap = ListedColormap(colors)
+    norm = BoundaryNorm(np.arange(0.5, 5.5), cmap.N)
+    frame = gpd.GeoDataFrame.from_arrow(shapes_arrow(raster, connectivity=4))
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.05))
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.15, top=0.9, wspace=0.06)
+    axes[0].imshow(
+        raster, cmap=cmap, norm=norm, interpolation="nearest", extent=(0, 128, 128, 0)
+    )
+    frame.plot(
+        ax=axes[1],
+        rasterized=True,
+        column="value",
+        cmap=cmap,
+        norm=norm,
+        edgecolor=COLORS["ink"],
+        linewidth=0.08,
+    )
+    axes[0].set_title("(a) Categorical raster")
+    axes[1].set_title(f"(b) Polygons ({len(frame):,} regions)")
+    spatial_axes(axes, 128, 128)
+    fig.legend(
+        handles=[
+            Patch(facecolor=color, label=f"Class {i}")
+            for i, color in enumerate(colors, 1)
+        ],
+        loc="lower center",
+        ncol=4,
+        bbox_to_anchor=(0.5, 0.02),
+    )
+    save_figure(fig, "polygonize")
 
-rng = np.random.default_rng(42)
-raster = rng.integers(1, 5, size=(128, 128), dtype=np.uint8)
-cmap = ListedColormap(["#2d6a4f", "#52b788", "#d4a373", "#e9c46a"])
 
-gdf = gpd.GeoDataFrame.from_arrow(shapes_arrow(raster, connectivity=4))
-color_map = {1.0: "#2d6a4f", 2.0: "#52b788", 3.0: "#d4a373", 4.0: "#e9c46a"}
-gdf["color"] = [color_map[float(value)] for value in gdf["value"]]
+def contour_figure() -> None:
+    y, x = np.mgrid[-3:3:128j, -3:3:128j]
+    dem = (
+        np.exp(-(x**2 + y**2))
+        + 0.7 * np.exp(-((x - 1.5) ** 2 + (y - 1) ** 2) / 0.5)
+        + 0.5 * np.exp(-((x + 1.5) ** 2 + (y + 1.5) ** 2) / 0.8)
+    ).astype(np.float32)
+    thresholds = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1]
+    frame = gpd.GeoDataFrame.from_arrow(contours_arrow(dem, thresholds=thresholds))
+    norm = Normalize(0, 1.1)
+    # Band midpoints use the same scale as the continuous input, not a rescaled palette.
+    midpoint = {lo: (lo + hi) / 2 for lo, hi in pairwise(thresholds)}
+    colors = [WARM(norm(midpoint[float(value)])) for value in frame["value"]]
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.25))
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.23, top=0.9, wspace=0.06)
+    # Marching squares samples sit at integer coordinates.
+    axes[0].imshow(
+        dem,
+        cmap=WARM,
+        norm=norm,
+        interpolation="nearest",
+        extent=(-0.5, 127.5, 127.5, -0.5),
+    )
+    frame.plot(
+        ax=axes[1],
+        rasterized=True,
+        color=colors,
+        edgecolor=COLORS["ink"],
+        linewidth=0.3,
+    )
+    axes[0].set_title("(a) Synthetic elevation field")
+    axes[1].set_title("(b) Interpolated contour bands")
+    spatial_axes(axes, 127, 127)
+    cax = fig.add_axes((0.16, 0.115, 0.68, 0.032))
+    bar = fig.colorbar(
+        plt.cm.ScalarMappable(norm=norm, cmap=WARM),
+        cax=cax,
+        orientation="horizontal",
+        ticks=[0, 0.3, 0.6, 0.9, 1.1],
+    )
+    bar.set_label("Synthetic elevation (arbitrary units)")
+    save_figure(fig, "contours")
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-height, width = raster.shape
-axes[0].imshow(
-    raster,
-    cmap=cmap,
-    interpolation="nearest",
-    extent=(0, width, height, 0),
-)
-axes[0].set_title("Input raster (4 classes)")
-axes[0].set_axis_off()
-_align_to_raster_grid(axes[0], width, height)
-gdf.plot(ax=axes[1], color=gdf["color"], edgecolor="black", linewidth=0.2)
-axes[1].set_title(f"Vector polygons ({len(gdf)} features)")
-axes[1].set_axis_off()
-_align_to_raster_grid(axes[1], width, height)
-plt.tight_layout()
-_save_figure(fig, "polygonize.png")
-plt.close(fig)
 
-# ── Contours: DEM vs isobands ───────────────────────────────────────────
+def main() -> None:
+    print(f"Figure font: {apply_style()}")
+    polygonize_figure()
+    contour_figure()
 
-y, x = np.mgrid[-3:3:128j, -3:3:128j]
-dem = (
-    np.exp(-(x**2 + y**2))
-    + 0.7 * np.exp(-((x - 1.5) ** 2 + (y - 1) ** 2) / 0.5)
-    + 0.5 * np.exp(-((x + 1.5) ** 2 + (y + 1.5) ** 2) / 0.8)
-).astype(np.float32)
 
-thresholds = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1]
-gdf_contour = gpd.GeoDataFrame.from_arrow(contours_arrow(dem, thresholds=thresholds))
-
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-height, width = dem.shape
-axes[0].imshow(
-    dem,
-    cmap="terrain",
-    interpolation="bilinear",
-    extent=(0, width, height, 0),
-)
-axes[0].set_title("Continuous raster (synthetic DEM)")
-axes[0].set_axis_off()
-_align_to_raster_grid(axes[0], width, height)
-gdf_contour.plot(
-    ax=axes[1],
-    column="value",
-    cmap="terrain",
-    edgecolor="black",
-    linewidth=0.3,
-    legend=True,
-    legend_kwds={"label": "Band threshold", "shrink": 0.8},
-)
-axes[1].set_title(f"Isoband contours ({len(gdf_contour)} polygons)")
-axes[1].set_axis_off()
-_align_to_raster_grid(axes[1], width, height)
-plt.tight_layout()
-_save_figure(fig, "contours.png")
-plt.close(fig)
+if __name__ == "__main__":
+    main()

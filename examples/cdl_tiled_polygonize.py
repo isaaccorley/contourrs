@@ -1,22 +1,28 @@
 """Download USDA CDL, polygonize in tiles, merge classes, and plot."""
 
-from __future__ import annotations
-
 import argparse
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen, urlretrieve
 
 import geopandas as gpd
 import matplotlib
+import numpy as np
 import pandas as pd
 import rasterio
 from contourrs import shapes_arrow
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from rasterio.windows import Window
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.figstyle import apply_style, export
+
+apply_style()
 
 CDL_GET_FILE_URL = "https://nassgeodata.gmu.edu/axis2/services/CDLService/GetCDLFile"
 OUTPUT_DIRS = (Path("assets"), Path("docs/assets"))
@@ -25,6 +31,9 @@ OUTPUT_DIRS = (Path("assets"), Path("docs/assets"))
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, default=2023)
+    parser.add_argument(
+        "--raster", type=Path, help="Use a local CDL raster without downloading"
+    )
     parser.add_argument("--fips", default="19153", help="Polk County, IA")
     parser.add_argument("--tile-size", type=int, default=1024)
     parser.add_argument("--connectivity", type=int, choices=(4, 8), default=4)
@@ -150,11 +159,12 @@ def class_area(gdf: gpd.GeoDataFrame):
     return gdf.assign(area=gdf.geometry.area).groupby("value")["area"].sum()
 
 
-def save_figure(fig, name: str, dpi: int = 140) -> None:
+def save_figure(fig, name: str, dpi: int = 300) -> None:
     for output_dir in OUTPUT_DIRS:
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path = output_dir / name
-        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        fig.savefig(out_path, dpi=dpi)
+        export(fig, out_path.with_suffix(""))
         print(f"Saved {out_path}")
 
 
@@ -162,22 +172,48 @@ def plot_result(raster_path: Path, merged: gpd.GeoDataFrame) -> None:
     with rasterio.open(raster_path) as src:
         raster = src.read(1)
         bounds = src.bounds
+        try:
+            palette = src.colormap(1)
+        except ValueError:
+            palette = None
 
+    classes = np.unique(raster)
+    if palette is not None:
+        colors = [np.asarray(palette[int(value)]) / 255 for value in classes]
+    else:
+        # Cached crops may omit the source color table. Share one class mapping.
+        categorical = [
+            *plt.get_cmap("tab20")(np.linspace(0, 1, 20)),
+            *plt.get_cmap("tab20b")(np.linspace(0, 1, 20)),
+        ]
+        colors = [
+            categorical[index % len(categorical)] for index in range(len(classes))
+        ]
+    cmap = ListedColormap(colors)
+    norm = BoundaryNorm(np.arange(-0.5, len(classes) + 0.5), cmap.N)
+    display_raster = np.searchsorted(classes, raster)
+    display_polygons = merged.assign(
+        display_class=np.searchsorted(classes, merged["value"])
+    )
     extent = (bounds.left, bounds.right, bounds.bottom, bounds.top)
-    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.9))
 
-    axes[0].imshow(raster, cmap="tab20", interpolation="nearest", extent=extent)
-    axes[0].set_title("CDL raster")
+    axes[0].imshow(
+        display_raster, cmap=cmap, norm=norm, interpolation="nearest", extent=extent
+    )
+    axes[0].set_title("(a) USDA CDL raster")
 
-    merged.plot(
+    display_polygons.plot(
         ax=axes[1],
-        column="value",
-        cmap="tab20",
+        rasterized=True,
+        column="display_class",
+        cmap=cmap,
+        norm=norm,
         edgecolor="black",
         linewidth=0.03,
         legend=False,
     )
-    axes[1].set_title(f"Merged polygons ({len(merged):,})")
+    axes[1].set_title(f"(b) Merged polygons ({len(merged):,})")
 
     for ax in axes:
         ax.set_axis_off()
@@ -185,7 +221,14 @@ def plot_result(raster_path: Path, merged: gpd.GeoDataFrame) -> None:
         ax.set_ylim(bounds.bottom, bounds.top)
         ax.set_aspect("equal")
 
-    plt.tight_layout()
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.12, top=0.9, wspace=0.06)
+    fig.text(
+        0.5,
+        0.025,
+        "Colors identify land-cover classes; outlines show vector boundaries",
+        ha="center",
+        fontsize=7,
+    )
     save_figure(fig, "cdl_polygonize.png")
     plt.close(fig)
 
@@ -195,10 +238,10 @@ def main() -> None:
     output_path = args.output or Path(
         f"examples/output/cdl_{args.year}_{args.fips}_merged.parquet"
     )
-    raster_path = args.download_dir / f"cdl_{args.year}_{args.fips}.tif"
-
-    cdl_url = resolve_cdl_url(args.year, args.fips)
-    download_if_missing(cdl_url, raster_path)
+    raster_path = args.raster or args.download_dir / f"cdl_{args.year}_{args.fips}.tif"
+    if args.raster is None and not raster_path.exists():
+        cdl_url = resolve_cdl_url(args.year, args.fips)
+        download_if_missing(cdl_url, raster_path)
 
     tiled = polygonize_tiled(raster_path, args.tile_size, args.connectivity)
     merged = merge_touching_same_class(tiled)

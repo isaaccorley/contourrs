@@ -3,7 +3,7 @@
 Fast raster polygonization and contouring in pure Rust with Python bindings.
 Built for `rasterio.features.shapes`-style NumPy workflows with no GDAL dependency.
 
-Full docs: https://isaac.earth/contourrs/
+Read the [documentation](https://isaac.earth/contourrs/).
 
 ## Example outputs
 
@@ -68,6 +68,6 @@ uv run pre-commit run --all-files
 
 ## More
 
-- Examples: `docs/examples.md`
-- Performance: `docs/performance.md`
-- Architecture: `docs/architecture.md`
+- [Examples](docs/examples.md)
+- [Performance](docs/performance.md)
+- [Architecture](docs/architecture.md)

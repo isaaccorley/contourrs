@@ -1,8 +1,7 @@
 """Generate synthetic and real DEM example plots."""
 
-from __future__ import annotations
-
 import argparse
+import sys
 from pathlib import Path
 
 import geopandas as gpd
@@ -11,10 +10,15 @@ import matplotlib.figure
 import numpy as np
 import rasterio
 from contourrs import contours_arrow, shapes_arrow
-from matplotlib.colors import BoundaryNorm
+from matplotlib.colors import Normalize
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.figstyle import apply_style, export
+
+apply_style()
 
 OUTPUT_DIRS = (Path("assets"), Path("docs/assets"))
 DEFAULT_DEM = Path("examples/data/mt_rainier_dem_2048.tif")
@@ -29,11 +33,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def save_figure(fig: matplotlib.figure.Figure, name: str, dpi: int = 150) -> None:
+def save_figure(fig: matplotlib.figure.Figure, name: str, dpi: int = 300) -> None:
     for output_dir in OUTPUT_DIRS:
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path = output_dir / name
-        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        fig.savefig(out_path, dpi=dpi)
+        export(fig, out_path.with_suffix(""))
         print(f"Saved {out_path}")
 
 
@@ -80,38 +85,39 @@ def plot_synthetic() -> None:
     gdf = gpd.GeoDataFrame.from_arrow(contours_arrow(dem, thresholds=thresholds))
 
     h, w = dem.shape
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-    axes[0].imshow(dem, cmap="terrain", interpolation="bilinear", extent=(0, w, h, 0))
-    axes[0].set_title("Synthetic DEM")
-    axes[0].set_axis_off()
-    axes[0].set_xlim(0, w)
-    axes[0].set_ylim(h, 0)
-    axes[0].set_aspect("equal")
-
-    gdf.plot(
-        ax=axes[1],
-        column="value",
+    norm = Normalize(0, 1.1)
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.2))
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.23, top=0.9, wspace=0.06)
+    axes[0].imshow(
+        dem,
         cmap="terrain",
-        edgecolor="black",
-        linewidth=0.3,
-        legend=True,
-        legend_kwds={"label": "Threshold", "shrink": 0.8},
+        norm=norm,
+        interpolation="nearest",
+        extent=(-0.5, w - 0.5, h - 0.5, -0.5),
     )
-    axes[1].set_title(f"Isobands ({len(gdf)} polygons)")
-    axes[1].set_axis_off()
-    axes[1].set_xlim(0, w)
-    axes[1].set_ylim(h, 0)
-    axes[1].set_aspect("equal")
-
-    plt.tight_layout()
+    axes[0].set_title("(a) Synthetic elevation field")
+    colors = plt.get_cmap("terrain")(norm(gdf["value"].to_numpy() + 0.1))
+    gdf.plot(
+        ax=axes[1], rasterized=True, color=colors, edgecolor="black", linewidth=0.3
+    )
+    axes[1].set_title("(b) Interpolated contour bands")
+    for ax in axes:
+        ax.set_axis_off()
+        ax.set(xlim=(0, w - 1), ylim=(h - 1, 0), aspect="equal")
+    cax = fig.add_axes((0.16, 0.115, 0.68, 0.032))
+    bar = fig.colorbar(
+        plt.cm.ScalarMappable(norm=norm, cmap="terrain"),
+        cax=cax,
+        orientation="horizontal",
+    )
+    bar.set_label("Synthetic elevation (arbitrary units)")
     save_figure(fig, "contours_synthetic.png")
     plt.close(fig)
 
 
 def plot_real(dem_path: Path, bands: int, thresholds: list[float] | None) -> None:
     with rasterio.open(dem_path) as src:
-        data = src.read(1)
+        data = src.read(1, masked=True).filled(np.nan)
         bounds = src.bounds
         transform = transform_tuple(src.transform)
 
@@ -133,26 +139,38 @@ def plot_real(dem_path: Path, bands: int, thresholds: list[float] | None) -> Non
         f"{len(gdf)} polygons"
     )
 
-    cmap = plt.get_cmap("terrain", band_count)
-    norm = BoundaryNorm(threshold_values, cmap.N, clip=True)
     extent = (bounds.left, bounds.right, bounds.bottom, bounds.top)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    axes[0].imshow(data, cmap="terrain", interpolation="bilinear", extent=extent)
-    axes[0].set_title("Mount Rainier DEM (USGS 3DEP)")
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.2))
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.23, top=0.9, wspace=0.06)
+    continuous_norm = Normalize(threshold_values[0], threshold_values[-1])
+    axes[0].imshow(
+        data,
+        cmap="terrain",
+        norm=continuous_norm,
+        interpolation="nearest",
+        extent=extent,
+    )
+    axes[0].set_title("(a) Mount Rainier elevation")
     style_geo_axes(axes[0], bounds)
 
-    gdf.plot(ax=axes[1], column="band", cmap=cmap, edgecolor="black", linewidth=0.05)
-    axes[1].set_title(f"Elevation bins ({len(gdf)} polygons)")
+    midpoints = (
+        np.asarray(threshold_values[:-1]) + np.asarray(threshold_values[1:])
+    ) / 2
+    colors = plt.get_cmap("terrain")(continuous_norm(midpoints[gdf["band"].to_numpy()]))
+    gdf.plot(
+        ax=axes[1], rasterized=True, color=colors, edgecolor="black", linewidth=0.025
+    )
+    axes[1].set_title(f"(b) Elevation bins ({len(gdf):,} regions)")
     style_geo_axes(axes[1], bounds)
 
-    scalar = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    scalar = plt.cm.ScalarMappable(norm=continuous_norm, cmap="terrain")
     scalar.set_array([])
-    colorbar = fig.colorbar(scalar, ax=axes[1], shrink=0.8)
+    cax = fig.add_axes((0.16, 0.115, 0.68, 0.032))
+    colorbar = fig.colorbar(scalar, cax=cax, orientation="horizontal")
     colorbar.set_label("Elevation (m)")
 
-    plt.tight_layout()
-    save_figure(fig, "contours_mt_rainier.png", dpi=200)
+    save_figure(fig, "contours_mt_rainier.png")
     plt.close(fig)
 
 

@@ -37,9 +37,13 @@ pub fn polygon_to_wkb_into(buf: &mut Vec<u8>, polygon: &Polygon<f64>) {
     }
 }
 
-// Compile-time guarantee that Coord<f64> is exactly two contiguous f64s (no padding).
-// Required for the unsafe reinterpret cast in write_ring on little-endian targets.
-const _: () = assert!(std::mem::size_of::<geo_types::Coord<f64>>() == 16);
+// Coord has Rust layout, so size alone does not guarantee x/y field order.
+// Verify every assumption used by the little-endian bulk WKB copy.
+const _: () = {
+    assert!(std::mem::size_of::<geo_types::Coord<f64>>() == 16);
+    assert!(std::mem::offset_of!(geo_types::Coord<f64>, x) == 0);
+    assert!(std::mem::offset_of!(geo_types::Coord<f64>, y) == 8);
+};
 
 #[inline]
 fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
@@ -48,8 +52,8 @@ fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
     // Reinterpret the entire coords slice as bytes in one shot.
     #[cfg(target_endian = "little")]
     {
-        // SAFETY: Coord<f64> is two contiguous f64s with no padding (verified by
-        // the compile-time assert above) on LE targets, matching WKB LE layout.
+        // SAFETY: The size and field-offset assertions above guarantee contiguous
+        // x/y f64s with no padding on this target, matching WKB LE layout.
         let byte_len = std::mem::size_of_val(coords);
         let ptr = coords.as_ptr() as *const u8;
         buf.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, byte_len) });
@@ -110,11 +114,12 @@ pub fn polygons_to_record_batch(
             ("ARROW:extension:metadata".to_string(), "{}".to_string()),
         ]
         .into_iter()
-        .collect(),
+        .collect::<std::collections::HashMap<_, _>>(),
     );
 
-    // GeoParquet schema-level metadata for compatibility
-    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"]}}}"#;
+    // No CRS can be inferred from an affine transform. Omitting this key
+    // would incorrectly default to OGC:CRS84 in GeoParquet readers.
+    let geo_meta = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Polygon"],"crs":null}}}"#;
 
     let schema = Schema::new(vec![
         geometry_field,
@@ -123,7 +128,7 @@ pub fn polygons_to_record_batch(
     .with_metadata(
         [("geo".to_string(), geo_meta.to_string())]
             .into_iter()
-            .collect(),
+            .collect::<std::collections::HashMap<_, _>>(),
     );
 
     RecordBatch::try_new(

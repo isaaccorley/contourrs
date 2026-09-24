@@ -1,8 +1,7 @@
 # contourrs
 
-**Fast raster polygonization and contouring in pure Rust with Python bindings.**
-
-Built for `rasterio.features.shapes`-style NumPy workflows — no GDAL dependency.
+contourrs converts NumPy rasters into polygons using a Rust core with Python bindings.
+The package has no GDAL dependency.
 
 ## Install
 
@@ -22,40 +21,52 @@ for geojson, value in shapes(raster, connectivity=4):
     print(f"value={value}, type={geojson['type']}")
 ```
 
-## What it does
+## Raster operations
 
-Converts discrete/categorical rasters (segmentation masks, land cover, classified imagery) into vector polygons with their pixel values. Also supports continuous-field contouring (DEMs, probability maps, heatmaps) via marching squares isobands.
+Use `shapes()` for categorical rasters such as segmentation masks and land-cover maps.
+Use `contours()` for filled contour bands from elevation, probability, or other continuous fields.
+Both functions return GeoJSON geometries; their `_arrow` variants return tables that can be written to GeoParquet.
 
-Built for the **ML-to-GIS pipeline**: model inference output goes in, GeoJSON or GeoParquet comes out.
+![Categorical raster and extracted polygons](assets/polygonize.svg){ width="660" }
 
-![Polygonize: raster to vector](assets/polygonize.png){ width="600" }
+Polygonization preserves the pixel boundaries of this synthetic four-class raster.
+Colors identify classes, and thin outlines show the extracted regions.
 
-![Contours: DEM to isobands](assets/contours.png){ width="600" }
+![Synthetic elevation field and contour bands](assets/contours.svg){ width="660" }
+
+Marching squares interpolates band boundaries between raster samples.
+The synthetic field and bands share a value scale; white areas lie below the first threshold.
 
 ## Real-world examples
 
-**Converting categorical Land Cover data products**
-![USDA CDL tiled polygonization](assets/cdl_polygonize.png){ width="900" }
+### Land cover
+![USDA CDL tiled polygonization](assets/cdl_polygonize.png){ width="660" }
 
-**Converting continuous-valued Digital Elevation Models**
-![Mount Rainier DEM elevation bins](assets/contours_mt_rainier.png){ width="900" }
+A 512x512 crop of the 2023 USDA CDL for Polk County, Iowa, polygonized in 128x128 tiles.
+Dissolving adjacent regions of the same class removes tile seams.
 
-**Converting Machine Learning model predictions**
+### Elevation
+![Mount Rainier DEM elevation bins](assets/contours_mt_rainier.png){ width="660" }
+
+A 2048x2048 USGS 3DEP crop divided into eight quantile-based elevation bins.
+This example traces the binned pixel footprints; the [DEM tutorial](tutorials/dem_contour.md) demonstrates interpolated contour bands.
+
+### Field segmentation
 ![Fields-of-the-World Field Boundaries](assets/torchgeo_ftw_polygonize.png){ width="900" }
 
-## Highlights
+## Output and compatibility
 
-- **No GDAL** — pure Rust core, zero system dependencies
-- **Fast** — up to 7.5x faster than rasterio with Arrow output
-- **Zero-copy Arrow** — GeoParquet-ready tables via Arrow C Data Interface
-- **Low Python-heap overhead** — `shapes_arrow()` keeps Python-managed allocation near zero in our `tracemalloc` benchmark; total native/process memory is higher
-- **Rasterio-style API** — `shapes()` is close to `rasterio.features.shapes` for ndarray workflows
-- **Contours** — marching squares isobands with sub-pixel interpolation
-- **All dtypes** — uint8/16/32, int16/32, float32/64
+- The Rust core requires no GDAL or other system libraries.
+- Arrow output was 7.5x faster than rasterio on the historical CDL benchmark; see [performance](performance.md) for the setup.
+- Arrow tables cross the Rust–Python boundary through the Arrow C Data Interface without copying their buffers.
+- `shapes_arrow()` keeps Python-managed allocation near zero in the historical `tracemalloc` benchmark, but native and total process memory are higher.
+- `shapes()` resembles `rasterio.features.shapes` for NumPy arrays, but returns an eager list rather than an iterator.
+- Marching squares interpolates contour-band boundaries between raster samples.
+- Accepted dtypes are uint8/16/32, int16/32, and float32/64.
 
 ## Acknowledgments
 
-Built by [Isaac Corley](https://github.com/isaaccorley) with [Claude](https://claude.ai) as an AI pair-programmer. The Rust core, Python bindings, and packaging were developed iteratively with human-in-the-loop feedback and review.
+[Isaac Corley](https://github.com/isaaccorley) developed the Rust core, Python bindings, and packaging with [Claude](https://claude.ai) as an AI pair-programmer and reviewed the resulting code.
 
 ## License
 

@@ -7,6 +7,7 @@
 pub mod arrow;
 pub mod connectivity;
 pub mod contour;
+mod contour_geometry;
 pub mod geometry;
 pub mod label;
 pub mod polygon;

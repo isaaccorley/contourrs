@@ -57,7 +57,8 @@ def shapes_arrow(
 
 Extract polygon shapes as a PyArrow Table with WKB geometry.
 
-Zero-copy from Rust via Arrow C Data Interface. Schema includes GeoParquet-compatible metadata for direct parquet export. **5-6x faster** than `shapes()` at scale by eliminating Python dict overhead.
+Zero-copy from Rust via Arrow C Data Interface. The table includes GeoParquet metadata for direct Parquet export and avoids constructing Python geometry dictionaries.
+The historical benchmarks include **5-6x** speedups over `shapes()` for some raster sizes; see [performance](performance.md) for all sizes and conditions.
 
 **Parameters:** Same as [`shapes()`](#shapes).
 
@@ -136,7 +137,7 @@ def contours_arrow(
 
 Generate filled contour polygons as a PyArrow Table with WKB geometry.
 
-Same as `contours()` but returns an Arrow Table via zero-copy FFI. Schema includes GeoParquet-compatible metadata.
+Same as `contours()` but returns an Arrow Table via zero-copy FFI. The table includes GeoParquet-compatible metadata.
 
 **Parameters:** Same as [`contours()`](#contours).
 
@@ -162,7 +163,9 @@ pq.write_table(table, "contours.parquet")
 
 ## Supported dtypes
 
-All functions accept the following input types. All output coordinates are `f64`.
+All functions require two-dimensional, C-contiguous arrays.
+Use `np.ascontiguousarray(source)` after slicing or transposing an array if needed; masks must also be C-contiguous.
+All functions accept the following input types, and output coordinates use `f64`.
 
 | Input dtype | Python type | Precision |
 |---|---|---|
@@ -174,12 +177,34 @@ All functions accept the following input types. All output coordinates are `f64`
 | `float32` | `np.float32` | Promoted to f64 |
 | `float64` | `np.float64` | Native (zero-copy in contours) |
 
+## Contour coordinates
+
+Contours interpolate between samples at integer `(col, row)` coordinates.
+Without an affine transform, the contour domain spans `[0, width - 1]` by `[0, height - 1]`.
+Categorical polygonization instead follows pixel footprints spanning `[0, width]` by `[0, height]`.
+Masked and nonfinite samples are excluded from contour regions.
+
 ## Mask and nodata semantics
 
 - `mask` uses rasterio-style semantics: `True` includes a pixel, `False` excludes it
 - `nodata=` is optional sugar for building that exclusion mask from the source array
 - If both `mask` and `nodata` are passed, the effective mask is `mask & (source != nodata)`
 - `nodata=np.nan` excludes NaN pixels
+
+## Coordinate reference systems
+
+An affine transform changes coordinates but does not assign a coordinate reference system (CRS).
+The Arrow output declares an unknown CRS (`null`); it does not infer a CRS from the transform.
+Assign the known CRS before exporting georeferenced data, for example:
+
+```python
+import geopandas as gpd
+
+gdf = gpd.GeoDataFrame.from_arrow(table).set_crs("EPSG:32615")
+gdf.to_parquet("polygons.parquet")
+```
+
+Choose the EPSG code that describes the input raster, not the example code above.
 
 ## Affine transform
 

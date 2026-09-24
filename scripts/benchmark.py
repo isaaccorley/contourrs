@@ -1,261 +1,48 @@
-"""Benchmark contourrs timing and memory behavior.
+"""Benchmark raster workloads and optionally save measurements as JSON.
 
-Compares GeoJSON vs Arrow output for both polygonize and contour workloads.
-Reports both Python-heap (`tracemalloc`) and process-peak RSS deltas.
-
-Usage:
-    uv run --python 3.13 --extra all python scripts/benchmark.py
+Run with ``uv run --extra dev python scripts/benchmark.py --output results.json``.
 """
 
-from __future__ import annotations
-
 import argparse
-import gc
 import json
-import subprocess
+import platform
 import sys
 import time
-import tracemalloc
+from importlib.metadata import version
 from pathlib import Path
-from typing import Any, cast
 
 import numpy as np
-
-POLYGONIZE_SIZES = [64, 128, 256, 512, 1024, 2048]
-CONTOUR_SIZES = [64, 128, 256, 512, 1024]
-POLYGONIZE_MEMORY_SIZES = [64, 256, 512, 1024, 2048]
-CONTOUR_MEMORY_SIZES = [64, 128, 256, 512, 1024]
-N_VALUES = 5
-N_THRESHOLDS = [0.1, 0.25, 0.5, 0.75, 0.9]
-WARMUP = 2
-REPEATS = 5
-REAL_WARMUP = 1
-REAL_REPEATS = 3
-MS_PER_SEC = 1000
-MIN_VISIBLE_MB = 0.1
-MB_PER_GB = 1024
-CDL_PATH = Path("examples/data/cdl_2023_polk_512.tif")
-DEM_PATH = Path("examples/data/mt_rainier_dem_2048.tif")
-
-
-def log(msg: str = "") -> None:
-    sys.stdout.write(f"{msg}\n")
-    sys.stdout.flush()
-
-
-def fmt_ms(ms: float) -> str:
-    if ms < 1:
-        return f"{ms * MS_PER_SEC:.0f}us"
-    if ms < MS_PER_SEC:
-        return f"{ms:.1f}ms"
-    return f"{ms / MS_PER_SEC:.2f}s"
-
-
-def fmt_mb(mb: float) -> str:
-    if mb < MIN_VISIBLE_MB:
-        return f"<{MIN_VISIBLE_MB:.1f}MB"
-    if mb < MB_PER_GB:
-        return f"{mb:.1f}MB"
-    return f"{mb / MB_PER_GB:.2f}GB"
-
-
-def bench(fn, *, warmup: int = WARMUP, repeats: int = REPEATS) -> tuple[float, object]:
-    """Return median wall time in ms and the last result."""
-    gc.collect()
-    last = None
-    for _ in range(warmup):
-        last = fn()
-        del last
-
-    gc.collect()
-    times = []
-    result = None
-    for _ in range(repeats):
-        gc.collect()
-        t0 = time.perf_counter()
-        result = fn()
-        t1 = time.perf_counter()
-        times.append((t1 - t0) * 1000)
-    return sorted(times)[len(times) // 2], result
-
-
-def python_heap_peak_mb(fn) -> float:
-    gc.collect()
-    tracemalloc.start()
-    result = fn()
-    _, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    del result
-    return peak / (1024 * 1024)
-
-
-def build_polygonize_data(size: int) -> np.ndarray:
-    rng = np.random.default_rng(42)
-    return rng.integers(0, N_VALUES, size=(size, size), dtype=np.uint8)
-
-
-def build_contour_data(size: int) -> np.ndarray:
-    rng = np.random.default_rng(42)
-    return rng.random((size, size)).astype(np.float32)
-
-
-def load_real_cdl() -> np.ndarray:
-    import rasterio
-
-    with rasterio.open(CDL_PATH) as src:
-        return src.read(1)
-
-
-def load_real_dem() -> tuple[np.ndarray, list[float]]:
-    import rasterio
-
-    with rasterio.open(DEM_PATH) as src:
-        dem = src.read(1)
-        nodata = src.nodata
-
-    mask = np.ones(dem.shape, dtype=bool)
-    if nodata is not None:
-        mask &= dem != nodata
-    vmin = float(dem[mask].min())
-    vmax = float(dem[mask].max())
-    thresholds = [float(x) for x in np.arange(np.ceil(vmin / 250) * 250, vmax, 250)]
-    return dem, thresholds
-
-
-def make_polygonize_fn(impl: str, data: np.ndarray):
-    from contourrs import shapes, shapes_arrow
-
-    if impl == "shapes":
-        return lambda: shapes(data, connectivity=4)
-    if impl == "shapes_arrow":
-        return lambda: shapes_arrow(data, connectivity=4)
-    if impl == "rasterio":
-        from rasterio.features import shapes as rio_shapes
-
-        return lambda: list(rio_shapes(data, connectivity=4))
-    msg = f"Unsupported polygonize impl: {impl}"
-    raise ValueError(msg)
-
-
-def make_contour_fn(impl: str, data: np.ndarray, thresholds: list[float]):
-    from contourrs import contours, contours_arrow
-
-    if impl == "contours":
-        return lambda: contours(data, thresholds=thresholds)
-    if impl == "contours_arrow":
-        return lambda: contours_arrow(data, thresholds=thresholds)
-    msg = f"Unsupported contour impl: {impl}"
-    raise ValueError(msg)
-
-
-def result_size(result: object) -> int:
-    if hasattr(result, "num_rows"):
-        return int(cast("Any", result).num_rows)
-    return len(cast("list[object]", result))
-
-
-def synthetic_process_fn(workload: str, impl: str, size: int):
-    if workload == "polygonize":
-        data = build_polygonize_data(size)
-        return make_polygonize_fn(impl, data)
-    if workload == "contours":
-        data = build_contour_data(size)
-        return make_contour_fn(impl, data, N_THRESHOLDS)
-    msg = f"Unsupported synthetic workload: {workload}"
-    raise ValueError(msg)
-
-
-def real_process_fn(workload: str, impl: str):
-    if workload == "polygonize":
-        data = load_real_cdl()
-        return make_polygonize_fn(impl, data)
-    if workload == "contours":
-        data, thresholds = load_real_dem()
-        return make_contour_fn(impl, data, thresholds)
-    msg = f"Unsupported real workload: {workload}"
-    raise ValueError(msg)
-
-
-def load_process_fn(workload: str, impl: str, dataset: str, size: int | None):
-    if dataset == "synthetic":
-        if size is None:
-            msg = f"size is required for synthetic {workload}"
-            raise ValueError(msg)
-        return synthetic_process_fn(workload, impl, size)
-    if dataset == "real":
-        return real_process_fn(workload, impl)
-    msg = f"Unsupported dataset: {dataset}"
-    raise ValueError(msg)
-
-
-def measure_process_peak_child(
-    *,
-    workload: str,
-    impl: str,
-    dataset: str,
-    size: int | None,
-) -> dict[str, float | int | str]:
-    """Measure process RSS delta in a fresh interpreter."""
-    import psutil
-
-    fn = load_process_fn(workload, impl, dataset, size)
-
-    process = psutil.Process()
-    gc.collect()
-    rss_before = process.memory_info().rss / (1024 * 1024)
-    result = fn()
-    rss_after = process.memory_info().rss / (1024 * 1024)
-    delta = max(0.0, rss_after - rss_before)
-    rows = result_size(result)
-    return {
-        "workload": workload,
-        "impl": impl,
-        "dataset": dataset,
-        "size": 0 if size is None else size,
-        "rows": rows,
-        "rss_delta_mb": delta,
-    }
-
-
-def measure_process_peak_subprocess(
-    *,
-    workload: str,
-    impl: str,
-    dataset: str,
-    size: int | None,
-) -> dict[str, float | int | str]:
-    cmd = [
-        sys.executable,
-        __file__,
-        "--measure-process-peak",
-        "--workload",
-        workload,
-        "--impl",
-        impl,
-        "--dataset",
-        dataset,
-    ]
-    if size is not None:
-        cmd.extend(["--size", str(size)])
-    proc = subprocess.run(  # noqa: S603
-        cmd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return json.loads(proc.stdout)
-
-
-def has_rasterio() -> bool:
-    try:
-        import rasterio  # noqa: F401
-    except ImportError:
-        return False
-    return True
+from benchmark_support import (
+    CDL_PATH,
+    CONTOUR_MEMORY_SIZES,
+    CONTOUR_SIZES,
+    DEM_PATH,
+    N_THRESHOLDS,
+    N_VALUES,
+    POLYGONIZE_MEMORY_SIZES,
+    POLYGONIZE_SIZES,
+    REAL_REPEATS,
+    REAL_WARMUP,
+    bench,
+    build_contour_data,
+    build_polygonize_data,
+    fmt_mb,
+    fmt_ms,
+    has_rasterio,
+    load_real_cdl,
+    load_real_dem,
+    log,
+    make_contour_fn,
+    make_polygonize_fn,
+    measure_process_rss_child,
+    measure_process_rss_subprocess,
+    python_heap_peak_mb,
+    result_size,
+)
 
 
 def bench_polygonize_timings() -> list[dict[str, object]]:
-    rows = []
+    rows: list[dict[str, object]] = []
     include_rasterio = has_rasterio()
 
     log("=" * 80)
@@ -273,12 +60,12 @@ def bench_polygonize_timings() -> list[dict[str, object]]:
     for size in POLYGONIZE_SIZES:
         data = build_polygonize_data(size)
         ms_shapes, _shapes_result = bench(
-            lambda d=data: make_polygonize_fn("shapes", d)(),
+            make_polygonize_fn("shapes", data),
         )
         ms_arrow, arrow_result = bench(
-            lambda d=data: make_polygonize_fn("shapes_arrow", d)(),
+            make_polygonize_fn("shapes_arrow", data),
         )
-        row = {
+        row: dict[str, object] = {
             "size": size,
             "shapes_ms": ms_shapes,
             "arrow_ms": ms_arrow,
@@ -289,7 +76,7 @@ def bench_polygonize_timings() -> list[dict[str, object]]:
         line = f"{sz} | {fmt_ms(ms_shapes):>10} | {fmt_ms(ms_arrow):>10}"
         if include_rasterio:
             ms_rio, rio_result = bench(
-                lambda d=data: make_polygonize_fn("rasterio", d)(),
+                make_polygonize_fn("rasterio", data),
             )
             row["rasterio_ms"] = ms_rio
             row["rasterio_rows"] = result_size(rio_result)
@@ -306,7 +93,7 @@ def bench_polygonize_timings() -> list[dict[str, object]]:
 
 
 def bench_contour_timings() -> list[dict[str, object]]:
-    rows = []
+    rows: list[dict[str, object]] = []
 
     log("=" * 80)
     log("CONTOUR TIMING (synthetic float32 isobands)")
@@ -320,10 +107,10 @@ def bench_contour_timings() -> list[dict[str, object]]:
     for size in CONTOUR_SIZES:
         data = build_contour_data(size)
         ms_contours, contour_result = bench(
-            lambda d=data: make_contour_fn("contours", d, N_THRESHOLDS)(),
+            make_contour_fn("contours", data, N_THRESHOLDS),
         )
         ms_arrow, arrow_result = bench(
-            lambda d=data: make_contour_fn("contours_arrow", d, N_THRESHOLDS)(),
+            make_contour_fn("contours_arrow", data, N_THRESHOLDS),
         )
         log(
             f"{size:>5}x{size:<4} | {fmt_ms(ms_contours):>12}"
@@ -346,8 +133,8 @@ def bench_contour_timings() -> list[dict[str, object]]:
 def bench_polygonize_memory() -> tuple[
     list[dict[str, object]], list[dict[str, object]]
 ]:
-    python_rows = []
-    process_rows = []
+    python_rows: list[dict[str, object]] = []
+    process_rows: list[dict[str, object]] = []
     include_rasterio = has_rasterio()
 
     log("=" * 80)
@@ -364,12 +151,12 @@ def bench_polygonize_memory() -> tuple[
     for size in POLYGONIZE_MEMORY_SIZES:
         data = build_polygonize_data(size)
         heap_shapes = python_heap_peak_mb(
-            lambda d=data: make_polygonize_fn("shapes", d)(),
+            make_polygonize_fn("shapes", data),
         )
         heap_arrow = python_heap_peak_mb(
-            lambda d=data: make_polygonize_fn("shapes_arrow", d)(),
+            make_polygonize_fn("shapes_arrow", data),
         )
-        row = {
+        row: dict[str, object] = {
             "size": size,
             "shapes_mb": heap_shapes,
             "arrow_mb": heap_arrow,
@@ -381,7 +168,7 @@ def bench_polygonize_memory() -> tuple[
         )
         if include_rasterio:
             heap_rio = python_heap_peak_mb(
-                lambda d=data: make_polygonize_fn("rasterio", d)(),
+                make_polygonize_fn("rasterio", data),
             )
             reduction = 100 * (1 - heap_arrow / heap_rio) if heap_rio > 0 else 0.0
             row["rasterio_mb"] = heap_rio
@@ -400,19 +187,19 @@ def bench_polygonize_memory() -> tuple[
     log("-" * len(header))
 
     for size in POLYGONIZE_MEMORY_SIZES:
-        proc_shapes = measure_process_peak_subprocess(
+        proc_shapes = measure_process_rss_subprocess(
             workload="polygonize",
             impl="shapes",
             dataset="synthetic",
             size=size,
         )
-        proc_arrow = measure_process_peak_subprocess(
+        proc_arrow = measure_process_rss_subprocess(
             workload="polygonize",
             impl="shapes_arrow",
             dataset="synthetic",
             size=size,
         )
-        row = {
+        row: dict[str, object] = {
             "size": size,
             "shapes_mb": proc_shapes["rss_delta_mb"],
             "arrow_mb": proc_arrow["rss_delta_mb"],
@@ -423,7 +210,7 @@ def bench_polygonize_memory() -> tuple[
             f" | {fmt_mb(float(proc_arrow['rss_delta_mb'])):>10}"
         )
         if include_rasterio:
-            proc_rio = measure_process_peak_subprocess(
+            proc_rio = measure_process_rss_subprocess(
                 workload="polygonize",
                 impl="rasterio",
                 dataset="synthetic",
@@ -443,8 +230,8 @@ def bench_polygonize_memory() -> tuple[
 
 
 def bench_contour_memory() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    python_rows = []
-    process_rows = []
+    python_rows: list[dict[str, object]] = []
+    process_rows: list[dict[str, object]] = []
 
     log("=" * 80)
     log("CONTOUR MEMORY (synthetic float32 isobands)")
@@ -457,10 +244,10 @@ def bench_contour_memory() -> tuple[list[dict[str, object]], list[dict[str, obje
     for size in CONTOUR_MEMORY_SIZES:
         data = build_contour_data(size)
         heap_contours = python_heap_peak_mb(
-            lambda d=data: make_contour_fn("contours", d, N_THRESHOLDS)(),
+            make_contour_fn("contours", data, N_THRESHOLDS),
         )
         heap_arrow = python_heap_peak_mb(
-            lambda d=data: make_contour_fn("contours_arrow", d, N_THRESHOLDS)(),
+            make_contour_fn("contours_arrow", data, N_THRESHOLDS),
         )
         reduction = 100 * (1 - heap_arrow / heap_contours) if heap_contours > 0 else 0.0
         log(
@@ -483,13 +270,13 @@ def bench_contour_memory() -> tuple[list[dict[str, object]], list[dict[str, obje
     log("-" * len(header))
 
     for size in CONTOUR_MEMORY_SIZES:
-        proc_contours = measure_process_peak_subprocess(
+        proc_contours = measure_process_rss_subprocess(
             workload="contours",
             impl="contours",
             dataset="synthetic",
             size=size,
         )
-        proc_arrow = measure_process_peak_subprocess(
+        proc_arrow = measure_process_rss_subprocess(
             workload="contours",
             impl="contours_arrow",
             dataset="synthetic",
@@ -526,16 +313,16 @@ def bench_real_world() -> dict[str, dict[str, object]]:
     if CDL_PATH.exists():
         cdl = load_real_cdl()
         ms_shapes, shapes_result = bench(
-            lambda d=cdl: make_polygonize_fn("shapes", d)(),
+            make_polygonize_fn("shapes", cdl),
             warmup=REAL_WARMUP,
             repeats=REAL_REPEATS,
         )
         ms_arrow, arrow_result = bench(
-            lambda d=cdl: make_polygonize_fn("shapes_arrow", d)(),
+            make_polygonize_fn("shapes_arrow", cdl),
             warmup=REAL_WARMUP,
             repeats=REAL_REPEATS,
         )
-        row = {
+        row: dict[str, object] = {
             "dataset": "CDL 2023 Polk County 512x512",
             "shapes_ms": ms_shapes,
             "arrow_ms": ms_arrow,
@@ -543,7 +330,7 @@ def bench_real_world() -> dict[str, dict[str, object]]:
         }
         if include_rasterio:
             ms_rio, rio_result = bench(
-                lambda d=cdl: make_polygonize_fn("rasterio", d)(),
+                make_polygonize_fn("rasterio", cdl),
                 warmup=REAL_WARMUP,
                 repeats=REAL_REPEATS,
             )
@@ -568,12 +355,12 @@ def bench_real_world() -> dict[str, dict[str, object]]:
     if DEM_PATH.exists():
         dem, thresholds = load_real_dem()
         ms_contours, contour_result = bench(
-            lambda d=dem: make_contour_fn("contours", d, thresholds)(),
+            make_contour_fn("contours", dem, thresholds),
             warmup=REAL_WARMUP,
             repeats=REAL_REPEATS,
         )
         ms_arrow, arrow_result = bench(
-            lambda d=dem: make_contour_fn("contours_arrow", d, thresholds)(),
+            make_contour_fn("contours_arrow", dem, thresholds),
             warmup=REAL_WARMUP,
             repeats=REAL_REPEATS,
         )
@@ -597,7 +384,7 @@ def bench_real_world() -> dict[str, dict[str, object]]:
 def bench_dtypes() -> list[dict[str, object]]:
     from contourrs import shapes_arrow
 
-    rows = []
+    rows: list[dict[str, object]] = []
 
     log("=" * 80)
     log("DTYPE TIMING (1024x1024, shapes_arrow)")
@@ -630,7 +417,15 @@ def bench_dtypes() -> list[dict[str, object]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--measure-process-peak", action="store_true")
+    parser.add_argument(
+        "--measure-process-rss",
+        "--measure-process-peak",
+        dest="measure_process_rss",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--output", type=Path, help="Save measurements and environment as JSON"
+    )
     parser.add_argument("--workload", choices=["polygonize", "contours"])
     parser.add_argument(
         "--impl",
@@ -643,8 +438,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.measure_process_peak:
-        payload = measure_process_peak_child(
+    if args.measure_process_rss:
+        payload = measure_process_rss_child(
             workload=args.workload,
             impl=args.impl,
             dataset=args.dataset,
@@ -663,12 +458,29 @@ def main() -> None:
     log("- process RSS: fresh subprocess delta above post-import/post-data baseline")
     log()
 
-    bench_polygonize_timings()
-    bench_contour_timings()
-    bench_polygonize_memory()
-    bench_contour_memory()
-    bench_real_world()
-    bench_dtypes()
+    results = {
+        "environment": {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "platform": platform.platform(),
+            "python": sys.version,
+            "versions": {
+                name: version(name) for name in ("contourrs", "numpy", "pyarrow")
+            },
+            "timing": "median; 2 warmups + 5 repeats (real: 1 + 3)",
+            "rss": (
+                "retained RSS delta, not peak; "
+                "fresh process after imports and input loading"
+            ),
+        },
+        "polygonize_timings": bench_polygonize_timings(),
+        "contour_timings": bench_contour_timings(),
+        "polygonize_memory": bench_polygonize_memory(),
+        "contour_memory": bench_contour_memory(),
+        "real_world": bench_real_world(),
+        "dtypes": bench_dtypes(),
+    }
+    if args.output is not None:
+        args.output.write_text(json.dumps(results, indent=2) + "\n")
     log("Done.")
 
 

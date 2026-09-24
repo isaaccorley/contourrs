@@ -12,6 +12,15 @@ impl UnionFind {
         }
     }
 
+    /// Allocate one set for a newly discovered provisional region.
+    pub fn make_set(&mut self) -> u32 {
+        let label = u32::try_from(self.parent.len()).expect("too many raster regions");
+        assert_ne!(label, u32::MAX, "region label conflicts with mask sentinel");
+        self.parent.push(label);
+        self.rank.push(0);
+        label
+    }
+
     /// Find root with path compression.
     #[inline]
     pub fn find(&mut self, mut x: u32) -> u32 {
@@ -55,6 +64,19 @@ impl UnionFind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_incremental_sets() {
+        let mut uf = UnionFind::new(0);
+        assert_eq!(uf.make_set(), 0);
+        assert_eq!(uf.make_set(), 1);
+        uf.union(0, 1);
+        assert_eq!(uf.make_set(), 2);
+        assert_eq!(uf.find(0), uf.find(1));
+        assert_ne!(uf.find(0), uf.find(2));
+        assert_eq!(uf.parent.len(), 3);
+        assert_eq!(uf.rank.len(), 3);
+    }
 
     #[test]
     fn test_basic_union_find() {

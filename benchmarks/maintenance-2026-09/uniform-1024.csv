@@ -1,0 +1,5 @@
+harness,version,case,size,median_ms,peak_live_heap_mib,polygons
+perf,baseline,uniform,1024,6.570,9.000,1
+perf,current,uniform,1024,6.740,5.127,1
+timing,baseline,uniform,1024,6.779,0.000,1
+timing,current,uniform,1024,7.243,0.000,1

@@ -1,0 +1,17 @@
+version,case,size,median_ms,peak_live_heap_mib,polygons
+baseline,uniform,128,0.113,0.141,1
+current,uniform,128,0.115,0.094,1
+baseline,categorical,128,1.069,11.193,9892
+current,categorical,128,1.033,11.193,9892
+baseline,smooth,128,0.401,0.189,8
+current,smooth,128,0.637,0.236,9
+baseline,noise,128,10.040,3.155,2474
+current,noise,128,28.979,7.713,4988
+baseline,uniform,256,0.426,0.563,1
+current,uniform,256,0.437,0.345,1
+baseline,categorical,256,5.927,45.314,40118
+current,categorical,256,6.391,45.314,40118
+baseline,smooth,256,0.850,0.378,8
+current,smooth,256,1.242,0.472,9
+baseline,noise,256,99.732,12.235,9644
+current,noise,256,128.805,30.164,19254

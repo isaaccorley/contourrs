@@ -39,6 +39,10 @@ impl BBox {
         }
     }
 
+    pub(crate) fn corners(&self) -> ([f64; 2], [f64; 2]) {
+        ([self.min_x, self.min_y], [self.max_x, self.max_y])
+    }
+
     #[inline]
     pub(crate) fn contains_point(&self, point: &Coord<f64>) -> bool {
         point.x >= self.min_x
@@ -56,10 +60,16 @@ pub fn signed_area(ring: &LineString<f64>) -> f64 {
     if n < 3 {
         return 0.0;
     }
+    // Translate before multiplying to avoid cancellation for small polygons
+    // at large projected-coordinate offsets.
+    let origin = coords[0];
     let mut area = 0.0;
-    for i in 0..n - 1 {
-        area += coords[i].x * coords[i + 1].y;
-        area -= coords[i + 1].x * coords[i].y;
+    for pair in coords.windows(2) {
+        let ax = pair[0].x - origin.x;
+        let ay = pair[0].y - origin.y;
+        let bx = pair[1].x - origin.x;
+        let by = pair[1].y - origin.y;
+        area += ax * by - bx * ay;
     }
     area * 0.5
 }
@@ -108,6 +118,30 @@ pub(crate) fn point_in_ring_prechecked_bbox(point: &Coord<f64>, ring: &LineStrin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_signed_area_large_coordinate_offset() {
+        let base = 1_000_000_000.0;
+        let ring = LineString(vec![
+            Coord { x: base, y: base },
+            Coord {
+                x: base + 1.0,
+                y: base,
+            },
+            Coord {
+                x: base + 1.0,
+                y: base + 1.0,
+            },
+            Coord {
+                x: base,
+                y: base + 1.0,
+            },
+            Coord { x: base, y: base },
+        ]);
+        assert_eq!(signed_area(&ring), 1.0);
+        let reversed = LineString(ring.0.into_iter().rev().collect());
+        assert_eq!(signed_area(&reversed), -1.0);
+    }
 
     #[test]
     fn test_signed_area_ccw() {

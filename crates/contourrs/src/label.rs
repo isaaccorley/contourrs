@@ -25,7 +25,7 @@ pub fn label_regions<T: RasterValue>(
     let n = w * h;
 
     let mut labels = vec![0u32; n];
-    let mut uf = UnionFind::new(n);
+    let mut uf = UnionFind::new(0);
     let mut next_label = 0u32;
 
     for row in 0..h {
@@ -96,7 +96,7 @@ pub fn label_regions<T: RasterValue>(
             labels[idx] = match merged_label {
                 Some(root) => root,
                 None => {
-                    let l = next_label;
+                    let l = uf.make_set();
                     next_label += 1;
                     l
                 }
