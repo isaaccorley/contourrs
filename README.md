@@ -143,3 +143,20 @@ See [development and docs setup](https://isaac.earth/contourrs/getting-started/#
 ## License
 
 [Apache-2.0](https://github.com/isaaccorley/contourrs/blob/main/LICENSE).
+
+## Citation
+
+Cite the [v0.8.1 Zenodo archive](https://doi.org/10.5281/zenodo.22949666):
+
+```bibtex
+@software{isaac_corley_2026_22949666,
+  author       = {Isaac Corley},
+  title        = {isaaccorley/contourrs: v0.8.1},
+  month        = sep,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v0.8.1},
+  doi          = {10.5281/zenodo.22949666},
+  url          = {https://doi.org/10.5281/zenodo.22949666},
+}
+```
