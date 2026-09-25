@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "contourrs"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "arrow",
  "geo",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "contourrs-python"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "arrow",
  "contourrs",
