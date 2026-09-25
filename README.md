@@ -1,15 +1,12 @@
 # contourrs
 
-Fast raster polygonization and contouring in pure Rust with Python bindings.
-Built for `rasterio.features.shapes`-style NumPy workflows with no GDAL dependency.
+<img src="https://raw.githubusercontent.com/isaaccorley/contourrs/main/assets/logo.png" alt="contourrs — a coral contour island inside a charcoal outline" width="600">
 
-Read the [documentation](https://isaac.earth/contourrs/).
+contourrs converts NumPy rasters into polygons with a Rust core and Python bindings.
+Use it to trace land-cover classes and segmentation masks, or extract filled contour bands from elevation and probability grids.
+The Python package requires no GDAL installation.
 
-## Example outputs
-
-![USDA CDL tiled polygonization](assets/cdl_polygonize.png)
-
-![Mount Rainier DEM elevation bins](assets/contours_mt_rainier.png)
+[Documentation](https://isaac.earth/contourrs/) · [API reference](https://isaac.earth/contourrs/api/) · [PyPI](https://pypi.org/project/contourrs/) · [Benchmarks](https://isaac.earth/contourrs/performance/)
 
 ## Install
 
@@ -17,57 +14,132 @@ Read the [documentation](https://isaac.earth/contourrs/).
 pip install contourrs
 ```
 
-## Quick start
+Wheels are available for Python 3.12–3.14 on Linux (x86_64 and ARM64), macOS (Apple Silicon), and Windows (x86_64).
+NumPy and PyArrow are installed as dependencies.
+
+## Polygonize a raster
+
+Each connected region of equal-valued pixels becomes a polygon.
 
 ```python
 import numpy as np
+from contourrs import shapes
+
+labels = np.array([[1, 1, 2], [1, 2, 2], [3, 3, 3]], dtype=np.uint8)
+
+for geometry, value in shapes(labels, connectivity=4):
+    print(value, geometry["type"])
+# 1.0 Polygon
+# 2.0 Polygon
+# 3.0 Polygon
+```
+
+Use `connectivity=8` to join regions that touch diagonally.
+Like `rasterio.features.shapes`, each result pairs a GeoJSON geometry dictionary with its raster value.
+`shapes()` returns a list rather than an iterator.
+
+![USDA Cropland Data Layer raster and extracted polygons](https://raw.githubusercontent.com/isaaccorley/contourrs/main/assets/cdl_polygonize.png)
+
+*A 512 × 512 crop of the 2023 USDA Cropland Data Layer for Polk County, Iowa.
+The right panel shows polygons extracted in tiles and merged across tile boundaries.*
+
+## Export to Arrow and GeoParquet
+
+The Arrow variants return a `pyarrow.Table` with a WKB `geometry` column and a float64 `value` column.
+They avoid constructing a Python geometry dictionary for every polygon and transfer buffers through the Arrow C Data Interface without copying them.
+
+```python
 import pyarrow.parquet as pq
-from contourrs import contours, shapes, shapes_arrow
+from contourrs import shapes_arrow
 
-raster = np.array([[1, 1, 2], [1, 2, 2], [3, 3, 3]], dtype=np.uint8)
-dem = np.random.default_rng(42).random((256, 256)).astype(np.float32)
-
-# GeoJSON-style output
-polygons = shapes(raster, connectivity=4)
-isobands = contours(dem, thresholds=[0.25, 0.5, 0.75])
-
-# Arrow/GeoParquet output
-table = shapes_arrow(raster, connectivity=4)
+table = shapes_arrow(labels, connectivity=4)
 pq.write_table(table, "polygons.parquet")
 ```
 
-## Real-world examples
+The table includes GeoParquet metadata.
+An affine transform sets output coordinates, but the CRS remains unknown until you assign it; see [georeferenced export](https://isaac.earth/contourrs/api/#coordinate-reference-systems).
 
-```bash
-# USDA Cropland Data Layer (tiled polygonization + merge)
-python examples/cdl_tiled_polygonize.py --year 2023 --fips 19153 --tile-size 1024
+## Extract contour bands
 
-# Synthetic + real DEM visualization
-python examples/dem_contour.py
+`contours()` interpolates boundaries between raster samples and returns filled polygons between consecutive thresholds.
+Each result's value is the lower threshold of its band.
 
-# TorchGeo FTW segmentation -> contourrs polygons (class index 1)
-uv sync --extra all
-uv run --extra all jupyter nbconvert --to notebook --execute --inplace examples/torchgeo_ftw_polygonize.ipynb
+```python
+import numpy as np
+from contourrs import contours
+
+axis = np.linspace(-2, 2, 128)
+x, y = np.meshgrid(axis, axis)
+elevation = np.exp(-(x**2 + y**2))
+
+bands = contours(elevation, thresholds=[0.1, 0.3, 0.5, 0.7, 1.0])
 ```
+
+This extracts the bands `[0.1, 0.3)`, `[0.3, 0.5)`, `[0.5, 0.7)`, and `[0.7, 1.0)`.
+Values outside those intervals are excluded.
+
+![A synthetic elevation field and its interpolated contour bands](https://raw.githubusercontent.com/isaaccorley/contourrs/main/assets/contours.png)
+
+*Interpolated bands from a synthetic terrain with three peaks.
+The raster and filled bands share a color scale; white areas fall below the first threshold.*
+
+Both operations offer the same two output formats:
+
+| Input | GeoJSON geometry/value pairs | Arrow table |
+|---|---|---|
+| Categorical raster | `shapes()` | `shapes_arrow()` |
+| Continuous raster | `contours()` | `contours_arrow()` |
+
+## Masks and map coordinates
+
+All four functions accept `mask`, `nodata`, and `transform`:
+
+```python
+from contourrs import shapes_arrow
+
+table = shapes_arrow(
+    labels,
+    nodata=0,
+    transform=(10, 0, 500000, 0, -10, 4500000),
+)
+```
+
+- `True` entries in `mask` include samples. Use `nodata=0` to exclude zeros or `nodata=np.nan` to exclude NaNs.
+- `transform` accepts an `affine.Affine` or the six coefficients `(a, b, c, d, e, f)` used by rasterio.
+- Inputs and masks must be two-dimensional and C-contiguous. Use `np.ascontiguousarray()` after slicing or transposing when needed.
+- Accepted dtypes are `uint8`, `uint16`, `uint32`, `int16`, `int32`, `float32`, and `float64`.
+
+Polygonization follows pixel edges; contours interpolate between samples at integer `(column, row)` coordinates.
+See the [coordinate conventions](https://isaac.earth/contourrs/api/#contour-coordinates) when applying a raster transform.
+Read raster files with rasterio or another loader, then pass the arrays to contourrs.
+
+## Tutorials
+
+- [Quickstart](https://isaac.earth/contourrs/tutorials/quickstart/) covers masks, transforms, and both output formats.
+- [DEM contours](https://isaac.earth/contourrs/tutorials/dem_contour/) extracts elevation bands from synthetic terrain and a Mount Rainier DEM.
+- [Tiled CDL polygonization](https://isaac.earth/contourrs/tutorials/cdl_tiled_polygonize/) polygonizes land cover in tiles and merges their boundaries.
+- [TorchGeo field segmentation](https://isaac.earth/contourrs/tutorials/torchgeo_ftw_polygonize/) converts Fields of the World model predictions into field polygons.
+
+Notebook sources are in [`examples/`](https://github.com/isaaccorley/contourrs/tree/main/examples).
+[Performance notes](https://isaac.earth/contourrs/performance/) describe the benchmark inputs, output costs, and memory measurements.
 
 ## Development
 
+Install [uv](https://docs.astral.sh/uv/) and [Rust](https://rustup.rs/), then:
+
 ```bash
+git clone https://github.com/isaaccorley/contourrs.git
+cd contourrs
 make install
 make test
 make check
-
-# or directly with uv
-git clone https://github.com/isaaccorley/contourrs.git
-cd contourrs
-uv sync --extra all
-uv run maturin develop --release
-uv run pytest tests/ -v
-uv run pre-commit run --all-files
 ```
 
-## More
+Run `make build` after changing Rust code.
+The checks include Rust formatting and Clippy, Ruff, ty, Pyrefly, and the Rust test suite.
+`make test` also runs the Python tests, including comparisons against rasterio.
+See [development and docs setup](https://isaac.earth/contourrs/getting-started/#development-setup) and the [Rust architecture](https://isaac.earth/contourrs/architecture/) for more.
 
-- [Examples](docs/examples.md)
-- [Performance](docs/performance.md)
-- [Architecture](docs/architecture.md)
+## License
+
+[Apache-2.0](https://github.com/isaaccorley/contourrs/blob/main/LICENSE).

@@ -1,5 +1,7 @@
 # contourrs
 
+![contourrs — a coral contour island inside a charcoal outline](assets/logo.png){ width="600" }
+
 contourrs converts NumPy rasters into polygons using a Rust core with Python bindings.
 The package has no GDAL dependency.
 
