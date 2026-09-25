@@ -6,6 +6,8 @@ repo_name: isaaccorley/contourrs
 
 theme:
   name: material
+  logo: assets/logo-icon.png
+  favicon: assets/favicon.png
   palette:
     - scheme: default
       primary: deep orange
