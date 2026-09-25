@@ -2,6 +2,9 @@
 
 <img src="https://raw.githubusercontent.com/isaaccorley/contourrs/main/assets/logo.png" alt="contourrs — a coral contour island inside a charcoal outline" width="600">
 
+[![PyPI](https://img.shields.io/pypi/v/contourrs)](https://pypi.org/project/contourrs/)
+[![DOI](https://zenodo.org/badge/1171138064.svg)](https://doi.org/10.5281/zenodo.22949665)
+
 contourrs converts NumPy rasters into polygons with a Rust core and Python bindings.
 Use it to trace land-cover classes and segmentation masks, or extract filled contour bands from elevation and probability grids.
 The Python package requires no GDAL installation.
