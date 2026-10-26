@@ -1,0 +1,4 @@
+# A failed unwrap is an assertion in tests; production code must explain panics.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true

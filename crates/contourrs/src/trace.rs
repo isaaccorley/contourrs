@@ -1,227 +1,187 @@
+//! Trace labeled raster boundaries and assemble polygon rings.
+
 use crate::geometry::{point_in_ring_prechecked_bbox, signed_area, BBox};
 use crate::label::LabelResult;
 use crate::transform::AffineTransform;
 use geo_types::{Coord, LineString, Polygon};
 
-const DIR_RIGHT: u8 = 0;
-const DIR_DOWN: u8 = 1;
-const DIR_LEFT: u8 = 2;
-const DIR_UP: u8 = 3;
-
-#[inline(always)]
-fn step(c: i32, r: i32, dir: u8) -> (i32, i32) {
-    match dir {
-        DIR_RIGHT => (c + 1, r),
-        DIR_DOWN => (c, r + 1),
-        DIR_LEFT => (c - 1, r),
-        _ => (c, r - 1), // DIR_UP
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum Direction {
+    Right,
+    Down,
+    Left,
+    Up,
 }
 
-#[inline(always)]
-fn is_valid_edge(dir: u8, label: u32, tl: u32, tr: u32, bl: u32, br: u32) -> bool {
-    match dir {
-        DIR_RIGHT => br == label && tr != label,
-        DIR_DOWN => bl == label && br != label,
-        DIR_LEFT => tl == label && bl != label,
-        _ => tr == label && tl != label, // DIR_UP
+impl Direction {
+    fn right(self) -> Self {
+        match self {
+            Self::Right => Self::Down,
+            Self::Down => Self::Left,
+            Self::Left => Self::Up,
+            Self::Up => Self::Right,
+        }
     }
-}
 
-/// Get label at pixel (col, row), returning u32::MAX for out-of-bounds/masked.
-#[inline(always)]
-fn get_label(labels: &[u32], w: usize, h: usize, col: i32, row: i32) -> u32 {
-    if col < 0 || row < 0 || col >= w as i32 || row >= h as i32 {
-        u32::MAX
-    } else {
-        labels[row as usize * w + col as usize]
+    fn step(self, col: i32, row: i32) -> (i32, i32) {
+        match self {
+            Self::Right => (col + 1, row),
+            Self::Down => (col, row + 1),
+            Self::Left => (col - 1, row),
+            Self::Up => (col, row - 1),
+        }
+    }
+
+    fn is_boundary(self, label: u32, tl: u32, tr: u32, bl: u32, br: u32) -> bool {
+        match self {
+            Self::Right => br == label && tr != label,
+            Self::Down => bl == label && br != label,
+            Self::Left => tl == label && bl != label,
+            Self::Up => tr == label && tl != label,
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << self as u8
     }
 }
 
 /// Trace polygon boundaries from a label grid using direct contour tracing.
+///
+/// The label grid must come from [`crate::label::label_regions`], or uphold
+/// its dimensions, valid region indices, and `u32::MAX` mask sentinel.
+///
+/// # Panics
+/// Panics if dimensions or region indices are inconsistent with the buffers.
 pub fn trace_polygons(
     label_result: &LabelResult,
     transform: &AffineTransform,
 ) -> Vec<(Polygon<f64>, f64)> {
-    let det = transform.a * transform.e - transform.b * transform.d;
-    let w = label_result.width;
-    let h = label_result.height;
-    let labels = &label_result.labels;
-    let stride = w + 1;
+    let stride = label_result.width + 1;
+    let mut tracer = BoundaryTracer {
+        grid: label_result,
+        transform,
+        stride,
+        // Four visited bits per vertex, one for each direction.
+        visited: vec![0; stride * (label_result.height + 1)],
+    };
+    let rings = tracer.rings();
+    let determinant = transform.a * transform.e - transform.b * transform.d;
+    build_polygons(rings, &label_result.values, determinant)
+}
 
-    // Visited bitfield: 4 bits per vertex (one per direction).
-    let num_vertices = stride * (h + 1);
-    let mut visited = vec![0u8; num_vertices];
+struct BoundaryTracer<'grid> {
+    grid: &'grid LabelResult,
+    transform: &'grid AffineTransform,
+    visited: Vec<u8>,
+    stride: usize,
+}
 
-    let mut rings: Vec<(u32, LineString<f64>)> = Vec::new();
+impl BoundaryTracer<'_> {
+    /// Out-of-bounds samples share the masked-pixel sentinel.
+    #[inline]
+    fn label(&self, col: i32, row: i32) -> u32 {
+        if col < 0 || row < 0 || col >= self.grid.width as i32 || row >= self.grid.height as i32 {
+            u32::MAX
+        } else {
+            self.grid.labels[row as usize * self.grid.width + col as usize]
+        }
+    }
 
-    // Scan horizontal boundaries
-    for row in 0..=h {
-        for col in 0..w {
-            let above = get_label(labels, w, h, col as i32, row as i32 - 1);
-            let below = get_label(labels, w, h, col as i32, row as i32);
-            if above == below {
-                continue;
-            }
-
-            if below != u32::MAX {
-                let vi = row * stride + col;
-                if visited[vi] & (1 << DIR_RIGHT) == 0 {
-                    let ring = trace_ring(
-                        labels,
-                        w,
-                        h,
-                        col as i32,
-                        row as i32,
-                        DIR_RIGHT,
-                        below,
-                        &mut visited,
-                        stride,
-                        transform,
-                    );
-                    if ring.0.len() >= 4 {
+    fn rings(&mut self) -> Vec<(u32, LineString<f64>)> {
+        let mut rings = Vec::new();
+        // Preserve scan order: horizontal boundaries, then vertical boundaries.
+        for row in 0..=self.grid.height as i32 {
+            for col in 0..self.grid.width as i32 {
+                let above = self.label(col, row - 1);
+                let below = self.label(col, row);
+                if above != below {
+                    if let Some(ring) = self.boundary(col, row, Direction::Right, below) {
                         rings.push((below, ring));
                     }
-                }
-            }
-
-            if above != u32::MAX {
-                let vi = row * stride + col + 1;
-                if visited[vi] & (1 << DIR_LEFT) == 0 {
-                    let ring = trace_ring(
-                        labels,
-                        w,
-                        h,
-                        col as i32 + 1,
-                        row as i32,
-                        DIR_LEFT,
-                        above,
-                        &mut visited,
-                        stride,
-                        transform,
-                    );
-                    if ring.0.len() >= 4 {
+                    if let Some(ring) = self.boundary(col + 1, row, Direction::Left, above) {
                         rings.push((above, ring));
                     }
                 }
             }
         }
-    }
-
-    // Scan vertical boundaries
-    for row in 0..h {
-        for col in 0..=w {
-            let left = get_label(labels, w, h, col as i32 - 1, row as i32);
-            let right = get_label(labels, w, h, col as i32, row as i32);
-            if left == right {
-                continue;
-            }
-
-            if left != u32::MAX {
-                let vi = row * stride + col;
-                if visited[vi] & (1 << DIR_DOWN) == 0 {
-                    let ring = trace_ring(
-                        labels,
-                        w,
-                        h,
-                        col as i32,
-                        row as i32,
-                        DIR_DOWN,
-                        left,
-                        &mut visited,
-                        stride,
-                        transform,
-                    );
-                    if ring.0.len() >= 4 {
+        for row in 0..self.grid.height as i32 {
+            for col in 0..=self.grid.width as i32 {
+                let left = self.label(col - 1, row);
+                let right = self.label(col, row);
+                if left != right {
+                    if let Some(ring) = self.boundary(col, row, Direction::Down, left) {
                         rings.push((left, ring));
                     }
-                }
-            }
-
-            if right != u32::MAX {
-                let vi = (row + 1) * stride + col;
-                if visited[vi] & (1 << DIR_UP) == 0 {
-                    let ring = trace_ring(
-                        labels,
-                        w,
-                        h,
-                        col as i32,
-                        row as i32 + 1,
-                        DIR_UP,
-                        right,
-                        &mut visited,
-                        stride,
-                        transform,
-                    );
-                    if ring.0.len() >= 4 {
+                    if let Some(ring) = self.boundary(col, row + 1, Direction::Up, right) {
                         rings.push((right, ring));
                     }
                 }
             }
         }
+        rings
     }
 
-    build_polygons(rings, &label_result.values, det)
-}
-
-/// Trace a single closed ring contour.
-#[inline(never)]
-#[allow(clippy::too_many_arguments)]
-fn trace_ring(
-    labels: &[u32],
-    w: usize,
-    h: usize,
-    start_c: i32,
-    start_r: i32,
-    start_dir: u8,
-    label: u32,
-    visited: &mut [u8],
-    stride: usize,
-    transform: &AffineTransform,
-) -> LineString<f64> {
-    let mut coords = Vec::with_capacity(64);
-    let mut c = start_c;
-    let mut r = start_r;
-    let mut dir = start_dir;
-
-    loop {
-        visited[r as usize * stride + c as usize] |= 1 << dir;
-
-        let (x, y) = transform.apply(c as f64, r as f64);
-        coords.push(Coord { x, y });
-
-        let (nc, nr) = step(c, r, dir);
-        c = nc;
-        r = nr;
-
-        // Choose next direction: right turn > straight > left turn > U-turn
-        let tl = get_label(labels, w, h, c - 1, r - 1);
-        let tr = get_label(labels, w, h, c, r - 1);
-        let bl = get_label(labels, w, h, c - 1, r);
-        let br = get_label(labels, w, h, c, r);
-
-        let rt = (dir + 1) & 3;
-        let st = dir;
-        let lt = (dir + 3) & 3;
-
-        dir = if is_valid_edge(rt, label, tl, tr, bl, br) {
-            rt
-        } else if is_valid_edge(st, label, tl, tr, bl, br) {
-            st
-        } else if is_valid_edge(lt, label, tl, tr, bl, br) {
-            lt
-        } else {
-            (dir + 2) & 3
-        };
-
-        if c == start_c && r == start_r && dir == start_dir {
-            let (x, y) = transform.apply(c as f64, r as f64);
-            coords.push(Coord { x, y });
-            break;
+    fn boundary(
+        &mut self,
+        col: i32,
+        row: i32,
+        direction: Direction,
+        label: u32,
+    ) -> Option<LineString<f64>> {
+        if label == u32::MAX {
+            return None;
         }
+        let vertex = row as usize * self.stride + col as usize;
+        if self.visited[vertex] & direction.bit() != 0 {
+            return None;
+        }
+        let ring = self.trace_ring((col, row), direction, label);
+        (ring.0.len() >= 4).then_some(ring)
     }
 
-    LineString(coords)
+    #[inline(never)]
+    fn trace_ring(
+        &mut self,
+        start: (i32, i32),
+        start_direction: Direction,
+        label: u32,
+    ) -> LineString<f64> {
+        let mut coords = Vec::with_capacity(64);
+        let (mut col, mut row) = start;
+        let mut direction = start_direction;
+        loop {
+            self.visited[row as usize * self.stride + col as usize] |= direction.bit();
+            let (x, y) = self.transform.apply(f64::from(col), f64::from(row));
+            coords.push(Coord { x, y });
+            (col, row) = direction.step(col, row);
+
+            let tl = self.label(col - 1, row - 1);
+            let tr = self.label(col, row - 1);
+            let bl = self.label(col - 1, row);
+            let br = self.label(col, row);
+            let right = direction.right();
+            let reverse = right.right();
+            let left = reverse.right();
+            // Right turn, straight, left turn, then U-turn.
+            direction = if right.is_boundary(label, tl, tr, bl, br) {
+                right
+            } else if direction.is_boundary(label, tl, tr, bl, br) {
+                direction
+            } else if left.is_boundary(label, tl, tr, bl, br) {
+                left
+            } else {
+                reverse
+            };
+            if (col, row) == start && direction == start_direction {
+                let (x, y) = self.transform.apply(f64::from(col), f64::from(row));
+                coords.push(Coord { x, y });
+                break;
+            }
+        }
+        LineString(coords)
+    }
 }
 
 /// Group traced rings by label and assemble into polygons.

@@ -7,6 +7,25 @@ contourrs           Pure Rust library, returns geo_types::Polygon<f64>
 contourrs-python    PyO3/maturin Python bindings
 ```
 
+The Python crate separates NumPy validation and dtype dispatch (`input`) from
+GeoJSON and Arrow conversion (`output`). Both algorithms and output formats use
+the same typed input path. NumPy borrow guards stay alive while the Rust core runs
+without the GIL.
+
+## Rust input validation
+
+`RasterGrid::try_new(data, width, height)` checks the buffer length and dimension
+multiplication, returning `RasterShapeError` on invalid input. `RasterGrid::new`
+retains the panicking convenience API. `get_checked(col, row)` returns `None` for
+out-of-range coordinates; `get(col, row)` panics in both debug and release builds.
+Existing public fields remain available, so callers constructing grids directly
+must preserve the documented dimension and buffer invariants.
+
+`RasterValue::to_f64_slice` converts samples for interpolation. Its default
+implementation allocates a float64 buffer; the float64 implementation borrows the
+original slice. Custom raster value implementations need only provide
+`to_f64_value` as before.
+
 ## Polygonize pipeline
 
 Polygonization uses two passes, as in GDAL's `GDALPolygonize`.
@@ -19,6 +38,8 @@ It accepts 4- or 8-connectivity and an optional mask.
 ### Boundary tracing
 
 The second pass traces each labeled region, normalizes its rings, and applies the affine transform to the output coordinates.
+The tracer owns the visited-edge state and uses a direction enum to follow each
+boundary in the original scan order.
 
 ## Contours pipeline
 
@@ -40,6 +61,19 @@ Interpolation along cell edges places boundaries between raster samples, and the
 
 The [performance measurements](performance.md) describe an earlier implementation and dependency environment.
 Rerun the benchmark before using those values to estimate the current implementation's cost.
+
+## Arrow ownership and limits
+
+WKB encoding validates ring and point counts before writing. Rust callers can use
+`try_polygon_to_wkb_into` to handle encoding errors; the existing
+`polygon_to_wkb_into` convenience function panics on unrepresentable counts.
+Record-batch export checks the Binary array's signed 32-bit offset limit before
+appending each polygon.
+
+During Python export, Rust owns the Arrow C interface structs until the synchronous
+PyArrow import finishes. PyArrow moves the buffers and clears the release callbacks;
+Rust then drops the structs. If import fails, any unconsumed buffers are released
+automatically. Returned tables own their buffers independently of the input array.
 
 ## Feature flags (Rust crate)
 

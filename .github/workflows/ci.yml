@@ -55,13 +55,21 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --features contourrs/arrow -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Test core
         run: cargo test -p contourrs
 
       - name: Test core (arrow feature)
         run: cargo test -p contourrs --features arrow
+
+      - name: Test raster bounds in release mode
+        run: cargo test -p contourrs --release --test raster_access
+
+      - name: Check Rust documentation
+        run: cargo doc --workspace --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   python:
     name: Python tests (${{ matrix.os }}, ${{ matrix.python-version }})

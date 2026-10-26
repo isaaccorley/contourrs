@@ -1,19 +1,20 @@
 /// Disjoint set (union-find) with path compression and union by rank.
-pub struct UnionFind {
+pub(crate) struct UnionFind {
     parent: Vec<u32>,
     rank: Vec<u8>,
 }
 
 impl UnionFind {
-    pub fn new(n: usize) -> Self {
+    pub(crate) fn new(n: usize) -> Self {
+        let count = u32::try_from(n).expect("union-find set count must fit in u32");
         Self {
-            parent: (0..n as u32).collect(),
+            parent: (0..count).collect(),
             rank: vec![0; n],
         }
     }
 
     /// Allocate one set for a newly discovered provisional region.
-    pub fn make_set(&mut self) -> u32 {
+    pub(crate) fn make_set(&mut self) -> u32 {
         let label = u32::try_from(self.parent.len()).expect("too many raster regions");
         assert_ne!(label, u32::MAX, "region label conflicts with mask sentinel");
         self.parent.push(label);
@@ -23,7 +24,7 @@ impl UnionFind {
 
     /// Find root with path compression.
     #[inline]
-    pub fn find(&mut self, mut x: u32) -> u32 {
+    pub(crate) fn find(&mut self, mut x: u32) -> u32 {
         loop {
             let p = self.parent[x as usize];
             if p == x {
@@ -37,7 +38,7 @@ impl UnionFind {
 
     /// Union two sets by rank. Returns the new root.
     #[inline]
-    pub fn union(&mut self, a: u32, b: u32) -> u32 {
+    pub(crate) fn union(&mut self, a: u32, b: u32) -> u32 {
         let ra = self.find(a);
         let rb = self.find(b);
         if ra == rb {

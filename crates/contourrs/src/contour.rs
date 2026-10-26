@@ -15,11 +15,10 @@
 //! Standard 16-case marching squares uses center-value saddle disambiguation.
 
 use rustc_hash::FxHashMap;
-use std::borrow::Cow;
 
 use geo::{BooleanOps, MapCoords};
 use geo_types::{Coord, LineString, Polygon};
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::contour_geometry::assemble_rings;
 use crate::polygon::normalize_polygon;
@@ -46,6 +45,9 @@ use crate::transform::AffineTransform;
 /// * `thresholds` – break values; bands are formed from consecutive pairs
 /// * `mask`       – optional boolean mask (true = include pixel)
 /// * `transform`  – affine transform applied to output coordinates
+///
+/// # Panics
+/// Panics if a manually constructed grid has dimensions exceeding its buffer.
 pub fn contours<T: RasterValue>(
     grid: &RasterGrid<T>,
     thresholds: &[f64],
@@ -59,21 +61,21 @@ pub fn contours<T: RasterValue>(
     // Sort + dedup thresholds, filtering non-finite values (NaN, ±Inf)
     let mut thresholds: Vec<f64> = thresholds.to_vec();
     thresholds.retain(|t| t.is_finite());
-    thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // Keep equal thresholds stable, including the sign of the first zero.
+    thresholds.sort_by(|a, b| {
+        if a == b {
+            std::cmp::Ordering::Equal
+        } else {
+            a.total_cmp(b)
+        }
+    });
     thresholds.dedup();
     if thresholds.len() < 2 {
         return Vec::new();
     }
 
     // Pre-convert grid to f64 for interpolation (zero-copy when T is already f64)
-    let f64_data: Cow<[f64]> = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-        // SAFETY: T is f64, so &[T] and &[f64] have identical layout
-        let ptr = grid.data.as_ptr() as *const f64;
-        let len = grid.data.len();
-        Cow::Borrowed(unsafe { std::slice::from_raw_parts(ptr, len) })
-    } else {
-        Cow::Owned(grid.data.iter().map(|v| v.to_f64_value()).collect())
-    };
+    let f64_data = T::to_f64_slice(grid.data);
     let w = grid.width;
     let h = grid.height;
 
@@ -185,8 +187,8 @@ fn march_row(
             continue; // All same → no crossing
         }
 
-        let cx = col as f64;
-        let cy = row as f64;
+        let cx = f64::from(col);
+        let cy = f64::from(row);
 
         // Edge crossing points
         let top = || Coord {
@@ -420,40 +422,32 @@ fn chain_segments(segments: &[EdgeSegment]) -> Vec<LineString<f64>> {
 
         let mut coords = Vec::with_capacity(8);
         used[start_idx] = true;
-        coords.push(segments[start_idx].start);
-        coords.push(segments[start_idx].end);
+        let first = segments[start_idx].start;
+        let mut end = segments[start_idx].end;
+        let start_key = quantize(&first);
+        coords.push(first);
 
         loop {
-            let end_key = quantize(coords.last().unwrap());
-            let start_key = quantize(&coords[0]);
+            let end_key = quantize(&end);
 
             // Check if ring is closed
-            if coords.len() > 2 && end_key == start_key {
-                *coords.last_mut().unwrap() = coords[0];
+            if coords.len() >= 2 && end_key == start_key {
+                if coords.len() >= 3 {
+                    coords.push(first);
+                    rings.push(LineString(coords));
+                }
                 break;
             }
+            coords.push(end);
 
             // Find next unused segment whose start matches our end
             let next = endpoint_map
                 .get(&end_key)
                 .and_then(|candidates| candidates.iter().find(|&&idx| !used[idx]).copied());
 
-            match next {
-                Some(idx) => {
-                    used[idx] = true;
-                    coords.push(segments[idx].end);
-                }
-                None => break, // Can't close — discard
-            }
-        }
-
-        if coords.len() >= 4 {
-            let first = coords[0];
-            let last = *coords.last().unwrap();
-            if quantize(&first) == quantize(&last) {
-                *coords.last_mut().unwrap() = first;
-                rings.push(LineString(coords));
-            }
+            let Some(idx) = next else { break }; // Can't close — discard
+            used[idx] = true;
+            end = segments[idx].end;
         }
     }
 

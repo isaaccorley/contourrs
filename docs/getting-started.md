@@ -39,6 +39,22 @@ uv run pre-commit run --all-files
 uv run pyrefly check
 ```
 
+Rust dependencies shared by both crates and their lint settings live in the root
+`Cargo.toml`. The checks apply selected
+[BeautifulRust practices](https://github.com/morganlinton/BeautifulRust/tree/c6f56d27a01739d404da2a554daaea023d7ddcca/skills/rust-best-practices),
+including documented public APIs, explicit unsafe invariants, checked conversions,
+and no unexplained production `unwrap()` calls. Clippy covers all targets and
+features; warnings become errors in pre-commit and CI.
+
+For Rust API changes, also check the default feature set, release-mode bounds,
+and generated documentation:
+
+```bash
+cargo test -p contourrs --no-default-features
+cargo test -p contourrs --release --test raster_access
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+```
+
 ## First usage
 
 ### Polygonize a categorical raster

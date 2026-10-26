@@ -1,5 +1,7 @@
+//! Pixel neighborhood definitions used in connected-component labeling.
+
 /// Pixel connectivity mode for region labeling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Connectivity {
     /// 4-connected: shares an edge (up, down, left, right).
     Four,
