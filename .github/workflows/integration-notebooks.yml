@@ -24,7 +24,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2.9.2
 
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
 
       - name: Build and install
         run: uv sync --locked --python 3.13 --extra docs
