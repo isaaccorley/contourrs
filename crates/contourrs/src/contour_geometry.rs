@@ -102,7 +102,7 @@ mod tests {
         ];
         // Trigger the spatial-index path with distant shells and holes.
         for i in 1..20 {
-            let base = i as f64 * 10.0;
+            let base = f64::from(i) * 10.0;
             rings.push(square(base, base + 5.0, true));
             rings.push(square(base + 1.0, base + 4.0, false));
         }

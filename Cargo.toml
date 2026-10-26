@@ -6,3 +6,33 @@ members = ["crates/contourrs", "crates/contourrs-python"]
 version = "0.8.2"
 edition = "2021"
 license = "Apache-2.0"
+
+[workspace.dependencies]
+arrow = { version = "60.0.0", default-features = false, features = ["ffi"] }
+geo-types = "0.7.20"
+
+# Selected BeautifulRust checks; keep warnings-as-errors in the check commands.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+cast_lossless = "warn"
+redundant_clone = "warn"
+clone_on_ref_ptr = "warn"
+wildcard_imports = "warn"
+string_add = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"

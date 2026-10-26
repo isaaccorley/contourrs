@@ -1,3 +1,5 @@
+//! Normalize exterior and interior rings to GeoJSON winding conventions.
+
 use crate::geometry::signed_area;
 use geo_types::{LineString, Polygon};
 

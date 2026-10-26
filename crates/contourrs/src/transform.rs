@@ -1,15 +1,23 @@
+//! Affine mapping from pixel coordinates to output coordinates.
+
 /// Affine transform matching rasterio convention.
 ///
 /// Transforms pixel coordinates (col, row) to georeferenced coordinates:
 ///   x = a * col + b * row + c
 ///   y = d * col + e * row + f
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AffineTransform {
+    /// Column contribution to the output x coordinate.
     pub a: f64,
+    /// Row contribution to the output x coordinate.
     pub b: f64,
+    /// Output x offset.
     pub c: f64,
+    /// Column contribution to the output y coordinate.
     pub d: f64,
+    /// Row contribution to the output y coordinate.
     pub e: f64,
+    /// Output y offset.
     pub f: f64,
 }
 
@@ -20,6 +28,8 @@ impl Default for AffineTransform {
 }
 
 impl AffineTransform {
+    /// Leave pixel coordinates unchanged.
+    #[must_use]
     pub fn identity() -> Self {
         Self {
             a: 1.0,
@@ -31,10 +41,14 @@ impl AffineTransform {
         }
     }
 
+    /// Construct a transform from rasterio's `(a, b, c, d, e, f)` coefficients.
+    #[must_use]
     pub fn new(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64) -> Self {
         Self { a, b, c, d, e, f }
     }
 
+    /// Whether all coefficients exactly match the identity transform.
+    #[must_use]
     #[inline]
     pub fn is_identity(&self) -> bool {
         self.a == 1.0
@@ -46,6 +60,7 @@ impl AffineTransform {
     }
 
     /// Transform pixel coordinate to georeferenced coordinate.
+    #[must_use]
     #[inline]
     pub fn apply(&self, col: f64, row: f64) -> (f64, f64) {
         let x = self.a * col + self.b * row + self.c;

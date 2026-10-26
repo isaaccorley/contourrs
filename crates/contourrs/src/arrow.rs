@@ -5,6 +5,7 @@
 use arrow::array::{ArrayRef, BinaryArray, Float64Array, RecordBatch};
 use arrow::buffer::{Buffer, OffsetBuffer, ScalarBuffer};
 use arrow::datatypes::{DataType, Field, Schema};
+use arrow::error::ArrowError;
 use geo_types::Polygon;
 use std::sync::Arc;
 
@@ -12,21 +13,79 @@ use std::sync::Arc;
 ///
 /// Used for streaming WKB into a single contiguous buffer when building
 /// Arrow arrays, avoiding per-polygon `Vec<u8>` allocations.
+///
+/// # Panics
+/// Panics if a ring or point count exceeds WKB's `u32` limit, or the encoded
+/// size overflows `usize`. Use [`try_polygon_to_wkb_into`] for fallible encoding.
 pub fn polygon_to_wkb_into(buf: &mut Vec<u8>, polygon: &Polygon<f64>) {
+    try_polygon_to_wkb_into(buf, polygon).unwrap_or_else(|error| panic!("{error}"));
+}
+
+/// Append WKB after validating its counts and size, leaving `buf` intact on error.
+///
+/// # Errors
+/// Returns an error if ring or point counts exceed `u32`, or the encoded size
+/// or resulting buffer length overflows `usize`.
+pub fn try_polygon_to_wkb_into(
+    buf: &mut Vec<u8>,
+    polygon: &Polygon<f64>,
+) -> Result<(), ArrowError> {
+    let size = wkb_size(polygon)?;
+    buf.len()
+        .checked_add(size)
+        .ok_or_else(|| ArrowError::ComputeError("WKB buffer size overflows usize".into()))?;
+    write_polygon(buf, polygon, size);
+    Ok(())
+}
+
+fn wkb_size(polygon: &Polygon<f64>) -> Result<usize, ArrowError> {
+    polygon
+        .interiors()
+        .len()
+        .checked_add(1)
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or_else(|| ArrowError::ComputeError("WKB ring count exceeds u32::MAX".into()))?;
+    let mut size = 9usize;
+    for ring in std::iter::once(polygon.exterior()).chain(polygon.interiors()) {
+        u32::try_from(ring.0.len())
+            .map_err(|_| ArrowError::ComputeError("WKB point count exceeds u32::MAX".into()))?;
+        size = ring
+            .0
+            .len()
+            .checked_mul(16)
+            .and_then(|bytes| bytes.checked_add(4))
+            .and_then(|bytes| size.checked_add(bytes))
+            .ok_or_else(|| ArrowError::ComputeError("WKB polygon size overflows usize".into()))?;
+    }
+    Ok(size)
+}
+
+fn next_offset(current: usize, additional: usize) -> Result<i32, ArrowError> {
+    current
+        .checked_add(additional)
+        .and_then(|size| i32::try_from(size).ok())
+        .ok_or_else(|| {
+            ArrowError::ComputeError(format!(
+                "WKB buffer exceeds i32::MAX ({current} + {additional} bytes)"
+            ))
+        })
+}
+
+fn write_polygon(buf: &mut Vec<u8>, polygon: &Polygon<f64>, size: usize) {
     let exterior = polygon.exterior();
     let interiors = polygon.interiors();
     let num_rings = 1 + interiors.len();
 
     // Reserve capacity for this polygon's WKB
-    let total_points: usize = exterior.0.len() + interiors.iter().map(|r| r.0.len()).sum::<usize>();
-    buf.reserve(9 + 4 + num_rings * 4 + total_points * 16);
+    buf.reserve(size);
 
     // Byte order: 1 = little-endian
     buf.push(1u8);
     // WKB type: Polygon = 3
     buf.extend_from_slice(&3u32.to_le_bytes());
     // Number of rings
-    buf.extend_from_slice(&(num_rings as u32).to_le_bytes());
+    let num_rings = u32::try_from(num_rings).expect("wkb_size validated the ring count");
+    buf.extend_from_slice(&num_rings.to_le_bytes());
 
     // Exterior ring
     write_ring(buf, &exterior.0);
@@ -40,22 +99,33 @@ pub fn polygon_to_wkb_into(buf: &mut Vec<u8>, polygon: &Polygon<f64>) {
 // Coord has Rust layout, so size alone does not guarantee x/y field order.
 // Verify every assumption used by the little-endian bulk WKB copy.
 const _: () = {
-    assert!(std::mem::size_of::<geo_types::Coord<f64>>() == 16);
-    assert!(std::mem::offset_of!(geo_types::Coord<f64>, x) == 0);
-    assert!(std::mem::offset_of!(geo_types::Coord<f64>, y) == 8);
+    assert!(
+        std::mem::size_of::<geo_types::Coord<f64>>() == 16,
+        "WKB bulk copy requires two packed f64 coordinates"
+    );
+    assert!(
+        std::mem::offset_of!(geo_types::Coord<f64>, x) == 0,
+        "WKB bulk copy requires x first"
+    );
+    assert!(
+        std::mem::offset_of!(geo_types::Coord<f64>, y) == 8,
+        "WKB bulk copy requires y immediately after x"
+    );
 };
 
 #[inline]
 fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
-    buf.extend_from_slice(&(coords.len() as u32).to_le_bytes());
+    let count = u32::try_from(coords.len()).expect("wkb_size validated the point count");
+    buf.extend_from_slice(&count.to_le_bytes());
     // On little-endian: Coord<f64> memory layout matches WKB LE format directly.
     // Reinterpret the entire coords slice as bytes in one shot.
     #[cfg(target_endian = "little")]
     {
-        // SAFETY: The size and field-offset assertions above guarantee contiguous
-        // x/y f64s with no padding on this target, matching WKB LE layout.
         let byte_len = std::mem::size_of_val(coords);
-        let ptr = coords.as_ptr() as *const u8;
+        let ptr = coords.as_ptr().cast::<u8>();
+        // SAFETY: The size and field-offset assertions above guarantee contiguous
+        // initialized x/y f64s with no padding, matching WKB LE layout. The byte
+        // slice borrows live coordinates and is copied before this borrow ends.
         buf.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, byte_len) });
     }
     #[cfg(not(target_endian = "little"))]
@@ -75,9 +145,13 @@ fn write_ring(buf: &mut Vec<u8>, coords: &[geo_types::Coord<f64>]) {
 ///
 /// Streams all WKB into a single contiguous buffer (one allocation) instead
 /// of N separate `Vec<u8>` per polygon.
+///
+/// # Errors
+/// Returns an error when WKB counts or sizes cannot be represented, the geometry
+/// buffer would exceed Arrow Binary's `i32::MAX` byte limit, or batch construction fails.
 pub fn polygons_to_record_batch(
     polygons: &[(Polygon<f64>, f64)],
-) -> Result<RecordBatch, arrow::error::ArrowError> {
+) -> Result<RecordBatch, ArrowError> {
     // Stream all WKB into a single buffer with offset tracking
     let mut wkb_data: Vec<u8> = Vec::new();
     let mut offsets: Vec<i32> = Vec::with_capacity(polygons.len() + 1);
@@ -86,14 +160,10 @@ pub fn polygons_to_record_batch(
     let mut values: Vec<f64> = Vec::with_capacity(polygons.len());
 
     for (polygon, value) in polygons {
-        polygon_to_wkb_into(&mut wkb_data, polygon);
-        if wkb_data.len() > i32::MAX as usize {
-            return Err(arrow::error::ArrowError::ComputeError(format!(
-                "WKB buffer exceeds i32::MAX ({} bytes)",
-                wkb_data.len()
-            )));
-        }
-        offsets.push(wkb_data.len() as i32);
+        let size = wkb_size(polygon)?;
+        let offset = next_offset(wkb_data.len(), size)?;
+        write_polygon(&mut wkb_data, polygon, size);
+        offsets.push(offset);
         values.push(*value);
     }
 
@@ -144,6 +214,42 @@ pub fn polygons_to_record_batch(
 mod tests {
     use super::*;
     use geo_types::{Coord, LineString};
+
+    #[test]
+    fn binary_offset_rejects_overflow_without_allocating() {
+        let limit = i32::MAX as usize;
+        assert_eq!(next_offset(limit - 1, 1).unwrap(), i32::MAX);
+        assert!(next_offset(limit, 1).is_err());
+        assert!(next_offset(usize::MAX, 1).is_err());
+    }
+
+    #[test]
+    fn wkb_coordinates_match_portable_little_endian_encoding() {
+        let ring: LineString<f64> = LineString(vec![
+            Coord { x: -0.0, y: 1.5 },
+            Coord {
+                x: -3.25,
+                y: 1.0e10,
+            },
+            Coord { x: 2.0, y: -8.5 },
+            Coord { x: -0.0, y: 1.5 },
+        ]);
+        let polygon = Polygon::new(ring.clone(), vec![ring]);
+        let mut expected = vec![1];
+        expected.extend_from_slice(&3u32.to_le_bytes());
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        for ring in std::iter::once(polygon.exterior()).chain(polygon.interiors()) {
+            expected.extend_from_slice(&u32::try_from(ring.0.len()).unwrap().to_le_bytes());
+            for coordinate in &ring.0 {
+                expected.extend_from_slice(&coordinate.x.to_le_bytes());
+                expected.extend_from_slice(&coordinate.y.to_le_bytes());
+            }
+        }
+        let mut encoded = Vec::new();
+        try_polygon_to_wkb_into(&mut encoded, &polygon).unwrap();
+        assert_eq!(encoded, expected);
+        assert_eq!(wkb_size(&polygon).unwrap(), encoded.len());
+    }
 
     fn polygon_to_wkb(polygon: &Polygon<f64>) -> Vec<u8> {
         let mut buf = Vec::new();

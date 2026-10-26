@@ -22,7 +22,7 @@ fn test_basin_inside_upper_superlevel_is_preserved() {
 
 #[test]
 fn test_boundary_touching_band_is_valid() {
-    let data: Vec<f64> = (0..16).map(|i| (i % 4) as f64).collect();
+    let data: Vec<f64> = (0..16).map(|i| f64::from(i % 4)).collect();
     let grid = RasterGrid::new(&data, 4, 4);
     let polygons = contours(&grid, &[0.5, 1.5], None, AffineTransform::identity());
     assert_eq!(polygons.len(), 1);
@@ -34,7 +34,7 @@ fn test_boundary_touching_band_is_valid() {
 
 #[test]
 fn test_translated_band_preserves_area() {
-    let data: Vec<f64> = (0..16).map(|i| (i % 4) as f64).collect();
+    let data: Vec<f64> = (0..16).map(|i| f64::from(i % 4)).collect();
     let grid = RasterGrid::new(&data, 4, 4);
     let transform = AffineTransform::new(1.0, 0.0, 1e9, 0.0, -1.0, 1e9);
     let original = contours(&grid, &[0.5, 1.5], None, AffineTransform::identity());
@@ -91,7 +91,7 @@ fn test_bands_partition_sample_extent() {
     // Exercise saddles and exact-threshold vertices with deterministic fields.
     for seed in 0..10 {
         let data: Vec<f64> = (0..72)
-            .map(|i| ((i * 37 + seed * 13) % 101) as f64 / 100.0)
+            .map(|i| f64::from((i * 37 + seed * 13) % 101) / 100.0)
             .collect();
         let grid = RasterGrid::new(&data, 9, 8);
         let polygons = contours(

@@ -1,13 +1,19 @@
+//! Connected-component labeling with four- or eight-neighbor connectivity.
+
 use crate::connectivity::Connectivity;
 use crate::raster::{RasterGrid, RasterValue};
 use crate::union_find::UnionFind;
 
 /// Result of region labeling pass.
+#[derive(Debug, Clone, PartialEq)]
 pub struct LabelResult {
     /// Label grid — each pixel gets a region label (canonical root after resolve).
     pub labels: Vec<u32>,
+    /// Representative values indexed by canonical region label.
     pub values: Vec<f64>,
+    /// Number of columns in the label grid.
     pub width: usize,
+    /// Number of rows in the label grid.
     pub height: usize,
 }
 
@@ -15,6 +21,11 @@ pub struct LabelResult {
 ///
 /// Each contiguous region of equal values (respecting connectivity and mask)
 /// gets a unique label. Returns the label grid with canonical labels.
+/// Missing entries in a short mask exclude those pixels.
+///
+/// # Panics
+/// Panics if the grid dimensions do not match its buffer, or the number of
+/// provisional regions reaches the reserved `u32::MAX` mask sentinel.
 pub fn label_regions<T: RasterValue>(
     grid: &RasterGrid<T>,
     mask: Option<&[bool]>,
@@ -23,6 +34,7 @@ pub fn label_regions<T: RasterValue>(
     let w = grid.width;
     let h = grid.height;
     let n = w * h;
+    let data = grid.data;
 
     let mut labels = vec![0u32; n];
     let mut uf = UnionFind::new(0);
@@ -40,13 +52,15 @@ pub fn label_regions<T: RasterValue>(
                 }
             }
 
-            let val = grid.get(col, row);
+            // The scan and neighbor guards establish coordinates. Reuse their
+            // flat indices instead of repeating checked coordinate arithmetic.
+            let val = data[idx];
             let mut merged_label: Option<u32> = None;
 
             // Check west neighbor
             if col > 0 {
                 let nidx = idx - 1;
-                if labels[nidx] != u32::MAX && grid.get(col - 1, row) == val {
+                if labels[nidx] != u32::MAX && data[nidx] == val {
                     let root = uf.find(labels[nidx]);
                     merged_label = Some(match merged_label {
                         Some(existing) => uf.union(existing, root),
@@ -58,7 +72,7 @@ pub fn label_regions<T: RasterValue>(
             // Check north neighbor
             if row > 0 {
                 let nidx = idx - w;
-                if labels[nidx] != u32::MAX && grid.get(col, row - 1) == val {
+                if labels[nidx] != u32::MAX && data[nidx] == val {
                     let root = uf.find(labels[nidx]);
                     merged_label = Some(match merged_label {
                         Some(existing) => uf.union(existing, root),
@@ -71,7 +85,7 @@ pub fn label_regions<T: RasterValue>(
                 // Check northwest neighbor
                 if col > 0 && row > 0 {
                     let nidx = (row - 1) * w + (col - 1);
-                    if labels[nidx] != u32::MAX && grid.get(col - 1, row - 1) == val {
+                    if labels[nidx] != u32::MAX && data[nidx] == val {
                         let root = uf.find(labels[nidx]);
                         merged_label = Some(match merged_label {
                             Some(existing) => uf.union(existing, root),
@@ -83,7 +97,7 @@ pub fn label_regions<T: RasterValue>(
                 // Check northeast neighbor
                 if col + 1 < w && row > 0 {
                     let nidx = (row - 1) * w + (col + 1);
-                    if labels[nidx] != u32::MAX && grid.get(col + 1, row - 1) == val {
+                    if labels[nidx] != u32::MAX && data[nidx] == val {
                         let root = uf.find(labels[nidx]);
                         merged_label = Some(match merged_label {
                             Some(existing) => uf.union(existing, root),
@@ -113,7 +127,7 @@ pub fn label_regions<T: RasterValue>(
             *label = root;
             let root_idx = root as usize;
             if !seen[root_idx] {
-                values[root_idx] = grid.data[idx].to_f64_value();
+                values[root_idx] = data[idx].to_f64_value();
                 seen[root_idx] = true;
             }
         }

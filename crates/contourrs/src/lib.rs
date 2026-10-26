@@ -33,6 +33,12 @@ use geo_types::Polygon;
 /// * `mask` - Optional boolean mask (true = include pixel)
 /// * `connectivity` - 4 or 8 connected pixel neighborhoods
 /// * `transform` - Affine transform to apply to output coordinates
+///
+/// Missing entries in a short mask exclude those pixels.
+///
+/// # Panics
+/// Panics if a manually constructed grid has inconsistent dimensions, or the
+/// number of provisional regions exceeds the `u32` label capacity.
 pub fn polygonize<T: RasterValue>(
     grid: &RasterGrid<T>,
     mask: Option<&[bool]>,
@@ -47,15 +53,13 @@ pub fn polygonize<T: RasterValue>(
     let label_result = label::label_regions(grid, mask, connectivity);
 
     // Pass 2: Trace boundaries and assemble polygons
-    let mut polygons = trace::trace_polygons(&label_result, &transform);
+    let polygons = trace::trace_polygons(&label_result, &transform);
 
     // Normalize ring orientations (exterior CCW, holes CW)
-    polygons = polygons
+    polygons
         .into_iter()
         .map(|(poly, val)| (polygon::normalize_polygon(poly), val))
-        .collect();
-
-    polygons
+        .collect()
 }
 
 #[cfg(test)]
