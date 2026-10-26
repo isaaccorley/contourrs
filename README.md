@@ -37,7 +37,9 @@ for geometry, value in shapes(labels, connectivity=4):
 # 3.0 Polygon
 ```
 
-Use `connectivity=8` to join regions that touch diagonally.
+Use `connectivity=8` to label diagonal neighbors as one region. Parts that touch
+only at corners are still exported as separate polygons; see the
+[connectivity semantics](https://research.taylorgeospatial.org/contourrs/api/#shapes).
 Like `rasterio.features.shapes`, each result pairs a GeoJSON geometry dictionary with its raster value.
 `shapes()` returns a list rather than an iterator.
 
