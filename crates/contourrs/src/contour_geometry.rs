@@ -53,7 +53,7 @@ pub(crate) fn assemble_rings(rings: Vec<LineString<f64>>) -> MultiPolygon<f64> {
         };
         let containing = if let Some(index) = &index {
             index
-                .locate_in_envelope_intersecting(&AABB::from_point([point.x, point.y]))
+                .locate_in_envelope_intersecting(AABB::from_point([point.x, point.y]))
                 .map(|entry| entry.data)
                 .filter(contains)
                 .min_by(compare)

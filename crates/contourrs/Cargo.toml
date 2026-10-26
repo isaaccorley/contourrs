@@ -17,5 +17,5 @@ arrow = { workspace = true, optional = true }
 geo-types.workspace = true
 rayon = "1.12.0"
 rustc-hash = "2.1.3"
-rstar = "0.12.2"
+rstar = "0.13.0"
 geo = "0.33.1"
