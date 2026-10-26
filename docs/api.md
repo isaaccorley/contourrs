@@ -28,6 +28,18 @@ Extract polygon shapes from a raster array.
 
 **Returns:** `list[tuple[dict, float]]` — GeoJSON geometry dicts paired with pixel values. Returns an eager list; `rasterio.features.shapes` returns an iterator.
 
+Connectivity applies to every unmasked raster value, including zero. With
+`connectivity=8`, diagonal neighbors share a region label, but parts that touch
+only at a pixel corner are emitted as separate `Polygon` geometries. The number
+of output polygons can therefore exceed the number of connected regions and
+differ from rasterio's eight-connected output.
+
+When a boundary revisits a pixel corner, it is split into simple rings before
+the affine transform is applied. An enclosed ring becomes a hole, including
+when that hole touches its shell at a single corner. This preserves pixel
+coverage without a geometry-repair step. `shapes_arrow()` uses the same tracing
+and polygon assembly.
+
 **Example:**
 
 ```python

@@ -16,6 +16,9 @@ pub mod trace;
 pub mod transform;
 mod union_find;
 
+#[cfg(test)]
+mod polygonize_regressions;
+
 pub use connectivity::Connectivity;
 pub use contour::contours;
 pub use raster::{RasterGrid, RasterValue};
@@ -27,6 +30,8 @@ use geo_types::Polygon;
 ///
 /// Returns a list of `(polygon, value)` pairs where each polygon is a
 /// contiguous region of equal values in the input grid.
+/// Connectivity applies to every unmasked value. Parts joined only at pixel
+/// corners are returned as separate polygons, including with eight-connectivity.
 ///
 /// # Arguments
 /// * `grid` - The input raster grid

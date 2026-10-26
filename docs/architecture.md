@@ -37,9 +37,14 @@ It accepts 4- or 8-connectivity and an optional mask.
 
 ### Boundary tracing
 
-The second pass traces each labeled region, normalizes its rings, and applies the affine transform to the output coordinates.
+The second pass traces each labeled region and splits boundaries at repeated
+integer pixel vertices. It transforms these simple rings, assigns holes to
+shells, and normalizes their winding. Splitting before coordinate conversion
+preserves corner contacts under rotated or reflected affine transforms.
 The tracer owns the visited-edge state and uses a direction enum to follow each
 boundary in the original scan order.
+Eight-connected regions can have several polygon parts when their pixels touch
+only at corners; each part is exported separately.
 
 ## Contours pipeline
 
