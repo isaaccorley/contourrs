@@ -38,8 +38,8 @@ It accepts 4- or 8-connectivity and an optional mask.
 ### Boundary tracing
 
 The second pass traces each labeled region and splits boundaries at repeated
-integer pixel vertices. It transforms these simple rings, assigns holes to
-shells, and normalizes their winding. Splitting before coordinate conversion
+integer pixel vertices. It transforms these simple rings, keeping only the
+vertices where a ring turns as GDAL does, assigns holes to shells, and normalizes their winding. Splitting before coordinate conversion
 preserves corner contacts under rotated or reflected affine transforms.
 The tracer owns the visited-edge state and uses a direction enum to follow each
 boundary in the original scan order.

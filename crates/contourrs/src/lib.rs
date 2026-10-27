@@ -107,6 +107,15 @@ mod tests {
     }
 
     #[test]
+    fn test_straight_edges_have_no_collinear_vertices() {
+        let data = vec![1u8; 12];
+        let grid = RasterGrid::new(&data, 4, 3);
+        let result = polygonize(&grid, None, Connectivity::Four, AffineTransform::identity());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0.exterior().0.len(), 5);
+    }
+
+    #[test]
     fn test_empty_grid() {
         let data: Vec<u8> = vec![];
         let grid = RasterGrid::new(&data, 0, 0);

@@ -191,16 +191,23 @@ impl BoundaryTracer<'_> {
     }
 }
 
+/// Transform a closed ring, keeping only the vertices where it turns. Like
+/// GDAL, a straight run of pixel edges becomes one segment.
 fn transform_ring(vertices: &[(i32, i32)], transform: &AffineTransform) -> LineString<f64> {
-    LineString(
-        vertices
-            .iter()
-            .map(|&(col, row)| {
-                let (x, y) = transform.apply(f64::from(col), f64::from(row));
-                Coord { x, y }
-            })
-            .collect(),
-    )
+    let n = vertices.len() - 1;
+    let point = |(col, row): (i32, i32)| {
+        let (x, y) = transform.apply(f64::from(col), f64::from(row));
+        Coord { x, y }
+    };
+    let mut ring: Vec<Coord<f64>> = (0..n)
+        .filter(|&i| {
+            let (p, c, q) = (vertices[(i + n - 1) % n], vertices[i], vertices[i + 1]);
+            (c.0 - p.0, c.1 - p.1) != (q.0 - c.0, q.1 - c.1)
+        })
+        .map(|i| point(vertices[i]))
+        .collect();
+    ring.push(ring[0]);
+    LineString(ring)
 }
 
 /// Extract simple cycles at repeated pixel vertices before transforming them.
