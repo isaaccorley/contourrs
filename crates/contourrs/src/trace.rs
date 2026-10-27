@@ -90,7 +90,7 @@ impl BoundaryTracer<'_> {
         }
     }
 
-    fn rings(&mut self) -> Vec<(u32, LineString<f64>)> {
+    fn rings(&mut self) -> Vec<(u32, Ring)> {
         let mut rings = Vec::new();
         // Preserve scan order: horizontal boundaries, then vertical boundaries.
         for row in 0..=self.grid.height as i32 {
@@ -124,13 +124,7 @@ impl BoundaryTracer<'_> {
         rings
     }
 
-    fn boundary(
-        &mut self,
-        col: i32,
-        row: i32,
-        direction: Direction,
-        label: u32,
-    ) -> Vec<LineString<f64>> {
+    fn boundary(&mut self, col: i32, row: i32, direction: Direction, label: u32) -> Vec<Ring> {
         if label == u32::MAX {
             return Vec::new();
         }
@@ -147,7 +141,7 @@ impl BoundaryTracer<'_> {
         start: (i32, i32),
         start_direction: Direction,
         label: u32,
-    ) -> Vec<LineString<f64>> {
+    ) -> Vec<Ring> {
         let mut vertices = Vec::with_capacity(64);
         let mut touches_corner = false;
         let (mut col, mut row) = start;
@@ -191,29 +185,40 @@ impl BoundaryTracer<'_> {
     }
 }
 
-/// Transform a closed ring, keeping only the vertices where it turns. Like
-/// GDAL, a straight run of pixel edges becomes one segment.
-fn transform_ring(vertices: &[(i32, i32)], transform: &AffineTransform) -> LineString<f64> {
+/// A transformed ring and its top-left pixel vertex as `(row, col)`.
+type Ring = ((i32, i32), LineString<f64>);
+
+/// Transform a closed ring the way GDAL writes it: only the vertices where it
+/// turns, starting at its top-left pixel vertex (smallest row, then column).
+fn transform_ring(vertices: &[(i32, i32)], transform: &AffineTransform) -> Ring {
     let n = vertices.len() - 1;
-    let point = |(col, row): (i32, i32)| {
-        let (x, y) = transform.apply(f64::from(col), f64::from(row));
-        Coord { x, y }
-    };
-    let mut ring: Vec<Coord<f64>> = (0..n)
+    let turns: Vec<(i32, i32)> = (0..n)
         .filter(|&i| {
             let (p, c, q) = (vertices[(i + n - 1) % n], vertices[i], vertices[i + 1]);
             (c.0 - p.0, c.1 - p.1) != (q.0 - c.0, q.1 - c.1)
         })
-        .map(|i| point(vertices[i]))
+        .map(|i| vertices[i])
+        .collect();
+    let start = (0..turns.len())
+        .min_by_key(|&i| (turns[i].1, turns[i].0))
+        .unwrap_or(0);
+    let mut ring: Vec<Coord<f64>> = turns[start..]
+        .iter()
+        .chain(&turns[..start])
+        .map(|&(col, row)| {
+            let (x, y) = transform.apply(f64::from(col), f64::from(row));
+            Coord { x, y }
+        })
         .collect();
     ring.push(ring[0]);
-    LineString(ring)
+    let (col, row) = turns[start];
+    ((row, col), LineString(ring))
 }
 
 /// Extract simple cycles at repeated pixel vertices before transforming them.
 /// Each vertex enters and leaves the active path once, keeping this linear in
 /// the boundary length even when a ring has many corner contacts.
-fn split_ring(vertices: Vec<(i32, i32)>, transform: &AffineTransform) -> Vec<LineString<f64>> {
+fn split_ring(vertices: Vec<(i32, i32)>, transform: &AffineTransform) -> Vec<Ring> {
     let mut positions = FxHashMap::default();
     let mut path = Vec::new();
     let mut rings = Vec::new();
@@ -238,7 +243,7 @@ fn split_ring(vertices: Vec<(i32, i32)>, transform: &AffineTransform) -> Vec<Lin
 
 /// Group traced rings by label and assemble into polygons.
 fn build_polygons(
-    mut rings: Vec<(u32, LineString<f64>)>,
+    mut rings: Vec<(u32, Ring)>,
     values: &[f64],
     det: f64,
 ) -> Vec<(Polygon<f64>, f64)> {
@@ -246,8 +251,8 @@ fn build_polygons(
         return Vec::new();
     }
 
-    // Sort rings by label in-place (avoids separate index vec for small ring counts)
-    rings.sort_unstable_by_key(|r| r.0);
+    // By label, then by top-left vertex, so holes come in GDAL's order.
+    rings.sort_unstable_by_key(|r| (r.0, r.1 .0));
 
     let mut result = Vec::new();
     let mut i = 0;
@@ -272,7 +277,7 @@ fn build_polygons(
         let mut hole_idxs: Vec<usize> = Vec::new();
 
         for (idx, ring) in rings[start..i].iter().enumerate() {
-            let area = signed_area(&ring.1);
+            let area = signed_area(&ring.1 .1);
             if area.abs() >= f64::EPSILON {
                 let is_exterior = if det >= 0.0 { area > 0.0 } else { area < 0.0 };
                 if is_exterior {
@@ -285,21 +290,21 @@ fn build_polygons(
 
         if exterior_idxs.len() == 1 && hole_idxs.is_empty() {
             // Single exterior, no holes — take ownership directly
-            let ext = std::mem::replace(&mut rings[exterior_idxs[0]].1, LineString(Vec::new()));
+            let ext = std::mem::replace(&mut rings[exterior_idxs[0]].1 .1, LineString(Vec::new()));
             result.push((Polygon::new(ext, vec![]), value));
         } else if exterior_idxs.len() == 1 {
             // Single exterior with holes — take all
-            let ext = std::mem::replace(&mut rings[exterior_idxs[0]].1, LineString(Vec::new()));
+            let ext = std::mem::replace(&mut rings[exterior_idxs[0]].1 .1, LineString(Vec::new()));
             let holes: Vec<LineString<f64>> = hole_idxs
                 .iter()
-                .map(|&h| std::mem::replace(&mut rings[h].1, LineString(Vec::new())))
+                .map(|&h| std::mem::replace(&mut rings[h].1 .1, LineString(Vec::new())))
                 .collect();
             result.push((Polygon::new(ext, holes), value));
         } else {
             // Multiple exteriors — bbox pre-filter + point_in_ring for hole assignment
             let ext_bboxes: Vec<BBox> = exterior_idxs
                 .iter()
-                .map(|&idx| BBox::from_ring(&rings[idx].1))
+                .map(|&idx| BBox::from_ring(&rings[idx].1 .1))
                 .collect();
 
             // Assign holes to exteriors via point-in-ring with bbox pre-filter.
@@ -309,17 +314,17 @@ fn build_polygons(
                 // Rings can share a corner, where point-in-ring is ambiguous.
                 // Their edges do not overlap, so an edge midpoint lies strictly
                 // inside the containing shell even when its endpoint touches it.
-                let edge = &rings[hole_idx].1 .0[..2];
+                let edge = &rings[hole_idx].1 .1 .0[..2];
                 let hp = Coord {
                     x: edge[0].x + (edge[1].x - edge[0].x) * 0.5,
                     y: edge[0].y + (edge[1].y - edge[0].y) * 0.5,
                 };
                 for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
                     if ext_bboxes[j].contains_point(&hp)
-                        && point_in_ring_prechecked_bbox(&hp, &rings[ext_idx].1)
+                        && point_in_ring_prechecked_bbox(&hp, &rings[ext_idx].1 .1)
                     {
                         ext_holes[j].push(std::mem::replace(
-                            &mut rings[hole_idx].1,
+                            &mut rings[hole_idx].1 .1,
                             LineString(Vec::new()),
                         ));
                         break; // each hole belongs to exactly one exterior
@@ -327,7 +332,7 @@ fn build_polygons(
                 }
             }
             for (j, &ext_idx) in exterior_idxs.iter().enumerate() {
-                let ext = std::mem::replace(&mut rings[ext_idx].1, LineString(Vec::new()));
+                let ext = std::mem::replace(&mut rings[ext_idx].1 .1, LineString(Vec::new()));
                 let my_holes = std::mem::take(&mut ext_holes[j]);
                 result.push((Polygon::new(ext, my_holes), value));
             }

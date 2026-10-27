@@ -184,3 +184,20 @@ def test_larger_grid():
     rio = list(rio_shapes(data, connectivity=4))
     compare_results(rust, rio)
     print("  PASS: larger grid (32x32)")
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_same_coordinates_in_the_same_order(seed):
+    """Rings start at the same vertex and holes come in the same order as GDAL's."""
+    rng = np.random.default_rng(seed)
+    data = rng.integers(1, 4, (120, 120)).astype(np.int32)
+    data[rng.random(data.shape) < 0.1] = 0
+    t = (2.5, 0.0, 500000.0, 0.0, -2.5, 5500000.0)
+    mask = data > 0
+    rust = rust_shapes(data, mask=mask, transform=t)
+    rio = list(rio_shapes(data, mask=mask, transform=to_rasterio_transform(t)))
+
+    def key(pairs):
+        return sorted((v, shape(g).wkb) for g, v in pairs)
+
+    assert key(rust) == key(rio)
